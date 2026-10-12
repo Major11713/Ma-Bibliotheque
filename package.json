@@ -1,0 +1,17 @@
+{
+  "name": "ma-bibliotheque-pwa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PWA personnelle et hors ligne pour gérer une collection de livres.",
+  "scripts": {
+    "vendor": "node scripts/copy-vendor.mjs",
+    "serve": "npx --yes serve . -l 4173",
+    "check": "node --check app.js && node --check db.js && node --check api.js && node --check scanner.js && node --check sw.js"
+  },
+  "dependencies": {
+    "@zxing/browser": "0.2.1",
+    "@zxing/library": "0.23.0"
+  },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}

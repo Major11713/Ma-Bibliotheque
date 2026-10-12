@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#17324d" />
+    <meta name="description" content="Ma Bibliothèque — votre collection de livres, privée et disponible hors ligne." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Bibliothèque" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <link rel="icon" href="./icons/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css?v=1.0.0-b7" />
+    <title>Ma Bibliothèque</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#bibliotheque" aria-label="Ma Bibliothèque, accueil">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 44 44"><path d="M10 8.5h18a6 6 0 0 1 6 6v21H15a5 5 0 0 1-5-5z"/><path d="M15 8.5v27M20 15h9M20 21h9"/></svg>
+          </span>
+          <span><strong>Ma Bibliothèque</strong><small>Votre étagère, partout</small></span>
+        </a>
+        <button class="icon-button" id="settingsButton" type="button" aria-label="Ouvrir les réglages">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.95 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.58 15 1.7 1.7 0 0 0 3 14H3v-4h.08A1.7 1.7 0 0 0 4.6 8.95a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.58 1.7 1.7 0 0 0 10 3V3h4v.08A1.7 1.7 0 0 0 15.05 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.42 9 1.7 1.7 0 0 0 21 10h.08v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+        </button>
+      </header>
+
+      <div class="network-banner" id="networkBanner" role="status" hidden>Mode hors ligne — votre collection reste disponible.</div>
+
+      <main>
+        <section class="view active" id="viewLibrary" data-view="bibliotheque">
+          <div class="welcome-block">
+            <p class="eyebrow" id="welcomeDate">Votre collection personnelle</p>
+            <h1>Que voulez-vous lire&nbsp;?</h1>
+            <p class="intro">Gardez vos livres à portée de main et évitez les doublons en librairie.</p>
+            <div class="quick-actions">
+              <button class="action-card action-primary" type="button" data-open-scan="check">
+                <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3M7 12h10M8 9h8M8 15h5"/></svg></span>
+                <span><strong>Vérifier</strong><small>Je l’ai déjà&nbsp;?</small></span>
+                <span class="action-arrow" aria-hidden="true">→</span>
+              </button>
+              <button class="action-card" type="button" data-open-scan="add">
+                <span class="action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5zM4 5.5v16M12 7v8M8 11h8"/></svg></span>
+                <span><strong>Enregistrer</strong><small>Ajouter un livre</small></span>
+                <span class="action-arrow" aria-hidden="true">→</span>
+              </button>
+            </div>
+          </div>
+
+          <section class="library-section" aria-labelledby="libraryTitle">
+            <div class="section-heading">
+              <div><p class="eyebrow">Sur vos étagères</p><h2 id="libraryTitle">Ma collection</h2></div>
+              <button class="text-button" id="manualAddButton" type="button">+ Ajout manuel</button>
+            </div>
+            <div class="stats-strip" aria-label="Résumé de la collection">
+              <div><strong id="ownedCount">0</strong><span>livres</span></div>
+              <div><strong id="wishCount">0</strong><span>envies</span></div>
+              <div><strong id="categoryCount">0</strong><span>catégories</span></div>
+            </div>
+            <label class="search-field">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+              <span class="sr-only">Rechercher</span>
+              <input id="searchInput" type="search" placeholder="Titre, auteur ou ISBN…" autocomplete="off" />
+              <button id="clearSearch" type="button" aria-label="Effacer la recherche" hidden>×</button>
+            </label>
+            <div class="filter-row" id="categoryFilters" aria-label="Filtrer par catégorie"></div>
+            <p class="results-note" id="resultsNote" aria-live="polite"></p>
+            <div class="book-grid" id="bookGrid"></div>
+            <div class="empty-state" id="emptyLibrary">
+              <div class="empty-illustration" aria-hidden="true"><span></span><span></span><span></span></div>
+              <h3>Votre première étagère vous attend</h3>
+              <p>Scannez le code-barres d’un livre ou ajoutez-le à la main.</p>
+              <button class="button primary" type="button" data-open-scan="add">Scanner un livre</button>
+            </div>
+          </section>
+        </section>
+
+        <section class="view page-view" id="viewWishes" data-view="envies" hidden>
+          <div class="page-heading">
+            <p class="eyebrow">À découvrir bientôt</p>
+            <h1>Liste d’envies</h1>
+            <p>Les livres repérés que vous aimeriez ajouter à vos étagères.</p>
+          </div>
+          <label class="search-field compact">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+            <span class="sr-only">Rechercher dans les envies</span>
+            <input id="wishSearchInput" type="search" placeholder="Rechercher dans mes envies…" />
+          </label>
+          <div class="book-list" id="wishList"></div>
+          <div class="empty-state" id="emptyWishes">
+            <div class="heart-mark" aria-hidden="true">♡</div>
+            <h3>Pas encore d’envie</h3>
+            <p>Lors d’un ajout, choisissez «&nbsp;Liste d’envies&nbsp;» pour le garder ici.</p>
+            <button class="button primary" type="button" data-open-scan="add">Ajouter une envie</button>
+          </div>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Navigation principale">
+        <button class="nav-item active" type="button" data-nav="bibliotheque" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5zM4 5.5v16M9 7h7"/></svg><span>Bibliothèque</span>
+        </button>
+        <button class="nav-scan" type="button" data-open-scan="check" aria-label="Scanner un ISBN">
+          <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M7 12h10M8 9h8M8 15h5"/></svg></span><small>Scanner</small>
+        </button>
+        <button class="nav-item" type="button" data-nav="envies">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg><span>Mes envies</span>
+        </button>
+      </nav>
+    </div>
+
+    <dialog class="scanner-dialog" id="scannerDialog">
+      <div class="scanner-shell">
+        <header class="scanner-header">
+          <button class="round-button inverse" id="closeScanner" type="button" aria-label="Fermer le scanner">×</button>
+          <div class="mode-switch" role="group" aria-label="Mode de scan">
+            <button type="button" data-scan-mode="check" class="active">Vérifier</button>
+            <button type="button" data-scan-mode="add">Enregistrer</button>
+          </div>
+          <button class="round-button inverse" id="torchButton" type="button" aria-label="Activer la lampe" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 2-2 9h4l-1 11 7-13h-4l3-7z"/></svg>
+          </button>
+        </header>
+        <div class="camera-stage">
+          <video id="scannerVideo" playsinline muted></video>
+          <div class="camera-placeholder" id="cameraPlaceholder"><span>▥</span><p>La caméra va s’ouvrir ici</p></div>
+          <div class="scan-frame" aria-hidden="true"><i></i><i></i><i></i><i></i><span></span></div>
+          <div class="scanner-message" id="scannerMessage" role="status">Placez le code-barres dans le cadre</div>
+        </div>
+        <div class="scanner-panel">
+          <p id="scannerHint">Le résultat reste sur votre téléphone.</p>
+          <form id="manualIsbnForm" class="isbn-form">
+            <label for="manualIsbn">Ou saisir l’ISBN</label>
+            <div><input id="manualIsbn" inputmode="numeric" autocomplete="off" placeholder="978…" /><button type="submit">Valider</button></div>
+          </form>
+          <div class="scan-result" id="scanResult" hidden></div>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="sheet-dialog" id="bookFormDialog">
+      <form class="sheet" id="bookForm">
+        <header class="sheet-header">
+          <button class="round-button" type="button" data-close-dialog="bookFormDialog" aria-label="Fermer">×</button>
+          <div><p class="eyebrow" id="formEyebrow">Nouveau livre</p><h2 id="formTitle">Confirmer les informations</h2></div>
+          <button class="text-button" type="submit">Sauvegarder</button>
+        </header>
+        <div class="loading-card" id="metadataLoading" hidden>
+          <span class="spinner" aria-hidden="true"></span><div><strong>Recherche du livre…</strong><small>Open Library, puis Google Books si nécessaire</small></div>
+        </div>
+        <div class="form-layout">
+          <div class="cover-editor">
+            <img id="formCoverPreview" alt="Aperçu de la couverture" />
+            <span id="formCoverFallback" aria-hidden="true">Aa</span>
+          </div>
+          <div class="form-fields">
+            <input id="editingOriginalIsbn" type="hidden" />
+            <label>ISBN<input id="formIsbn" name="isbn" autocomplete="off" inputmode="numeric" placeholder="978…" /></label>
+            <label>Titre *<input id="formBookTitle" name="title" required autocomplete="off" /></label>
+            <label>Auteur(s)<input id="formAuthors" name="authors" autocomplete="off" placeholder="Un ou plusieurs auteurs" /></label>
+            <label>Catégories<input id="formCategories" name="categories" autocomplete="off" placeholder="Romance, Histoire…" /><small>Séparez les catégories par une virgule.</small></label>
+            <label>Résumé<textarea id="formDescription" name="description" rows="5" placeholder="Résumé non disponible"></textarea></label>
+            <div class="two-columns">
+              <label>Parution<input id="formPublishedDate" name="publishedDate" autocomplete="off" /></label>
+              <label>Pages<input id="formPageCount" name="pageCount" inputmode="numeric" /></label>
+            </div>
+            <label>Couverture (URL)<input id="formCover" name="cover" type="url" inputmode="url" /></label>
+            <fieldset class="collection-choice">
+              <legend>Ranger dans</legend>
+              <label><input type="radio" name="status" value="owned" checked /><span><strong>Ma bibliothèque</strong><small>Je possède ce livre</small></span></label>
+              <label><input type="radio" name="status" value="wishlist" /><span><strong>Liste d’envies</strong><small>À acheter plus tard</small></span></label>
+            </fieldset>
+            <p class="form-source" id="formSource"></p>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="sheet-dialog" id="bookDetailDialog">
+      <article class="sheet detail-sheet">
+        <header class="sheet-header detail-header">
+          <button class="round-button" type="button" data-close-dialog="bookDetailDialog" aria-label="Fermer">×</button>
+          <div></div>
+          <button class="icon-button danger-ghost" id="deleteBookButton" type="button" aria-label="Supprimer le livre">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v6M14 11v6"/></svg>
+          </button>
+        </header>
+        <div id="bookDetailContent"></div>
+        <div class="detail-actions">
+          <button class="button secondary" id="toggleBookStatus" type="button"></button>
+          <button class="button primary" id="editBookButton" type="button">Modifier</button>
+        </div>
+      </article>
+    </dialog>
+
+    <dialog class="sheet-dialog" id="settingsDialog">
+      <section class="sheet settings-sheet">
+        <header class="sheet-header">
+          <button class="round-button" type="button" data-close-dialog="settingsDialog" aria-label="Fermer">×</button>
+          <div><p class="eyebrow">Sur cet appareil</p><h2>Réglages & sauvegarde</h2></div>
+          <span></span>
+        </header>
+        <div class="settings-group">
+          <h3>Vos données</h3>
+          <p>La collection est enregistrée uniquement sur cet appareil. Exportez-la régulièrement.</p>
+          <div class="settings-actions">
+            <button class="setting-row" id="exportButton" type="button"><span class="setting-icon">⇩</span><span><strong>Exporter en JSON</strong><small>Créer une sauvegarde</small></span><b>›</b></button>
+            <button class="setting-row" id="importButton" type="button"><span class="setting-icon">⇧</span><span><strong>Importer une sauvegarde</strong><small>Fusionner avec la collection</small></span><b>›</b></button>
+            <input id="importFile" type="file" accept="application/json,.json" hidden />
+          </div>
+        </div>
+        <div class="settings-group">
+          <h3>Google Books (facultatif)</h3>
+          <p>Open Library est interrogé en premier. Une clé Google Books gratuite peut améliorer le catalogue de secours, mais elle reste visible dans votre navigateur.</p>
+          <label class="api-key-field">Clé API personnelle<input id="googleApiKey" type="password" autocomplete="off" placeholder="Laisser vide si inutile" /></label>
+          <button class="button secondary full" id="saveApiKeyButton" type="button">Enregistrer la clé sur cet appareil</button>
+        </div>
+        <div class="settings-group info-panel">
+          <h3>Installation iPhone</h3>
+          <ol><li>Ouvrez le site dans Safari.</li><li>Touchez <strong>Partager</strong>.</li><li>Choisissez <strong>Sur l’écran d’accueil</strong>, puis <strong>Ajouter</strong>.</li></ol>
+        </div>
+        <div class="storage-status" id="storageStatus"></div>
+        <p class="version-line">Ma Bibliothèque · version 1.0.0 · sans compte, sans publicité</p>
+      </section>
+    </dialog>
+
+    <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="./vendor/zxing-browser.min.js?v=1.0.0-b7"></script>
+    <script type="module" src="./app.js?v=1.0.0-b7"></script>
+  </body>
+</html>

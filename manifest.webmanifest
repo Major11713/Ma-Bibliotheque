@@ -1,0 +1,24 @@
+{
+  "id": "./",
+  "name": "Ma Bibliothèque",
+  "short_name": "Bibliothèque",
+  "description": "Votre collection personnelle de livres, privée et disponible hors ligne.",
+  "lang": "fr-FR",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f6f1e8",
+  "theme_color": "#17324d",
+  "categories": ["books", "lifestyle", "utilities"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Vérifier un livre", "short_name": "Vérifier", "url": "./?action=check" },
+    { "name": "Enregistrer un livre", "short_name": "Enregistrer", "url": "./?action=add" }
+  ]
+}
