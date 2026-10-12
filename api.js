@@ -1,13 +1,14 @@
 
-const TIMEOUT_MS = 10000;
-const CACHE_PREFIX = 'mb-metadata-v3-';
-const CACHE_TTL = 7 * 86400000;
-const GOOGLE_PAUSE = 30 * 60000;
+const TIMEOUT_MS = 11000;
+const CACHE_PREFIX = 'mb-livres-v4-';
+const GOOGLE_PAUSE_MS = 30 * 60 * 1000;
 
 let googleBlockedUntil = 0;
 let nextOpenLibraryRequest = 0;
 
-// ---------- NETTOYAGE ----------
+// ===========================================
+// OUTILS COMMUNS
+// ===========================================
 
 function cleanIsbn(value) {
   return String(value || '').toUpperCase()
@@ -18,8 +19,7 @@ function isbn10To13(value) {
   if (!/^\d{9}[\dX]$/.test(value)) return '';
   const base = '978' + value.slice(0, 9);
   const sum = [...base].reduce(
-    (total, digit, i) =>
-      total + Number(digit) * (i % 2 ? 3 : 1), 0
+    (s, n, i) => s + Number(n) * (i % 2 ? 3 : 1), 0
   );
   return base + ((10 - sum % 10) % 10);
 }
@@ -44,35 +44,39 @@ function plainText(value) {
 }
 
 function cleanTitle(value) {
-  const text = plainText(value);
-  // Les notices BnF ajoutent parfois auteur et traducteur
-  // après une barre oblique entourée d'espaces.
-  return text.split(/\s+\/\s+/)[0].trim();
+  return plainText(value)
+    .split(/\s+\/\s+/)[0]
+    .trim();
 }
 
 function cleanAuthor(value) {
   let text = plainText(value);
+
   text = text.replace(
     /\.\s*(Auteur(?:e)? du texte|Autrice du texte|Traducteur|Traductrice|Illustrateur|Illustratrice).*$/i,
     ''
   ).trim();
 
-  // "Stewart, Kate" devient "Kate Stewart".
   const match = text.match(/^([^,]+),\s*([^,]+)$/);
+
   if (match) {
     text = `${match[2].trim()} ${match[1].trim()}`;
   }
+
   return text;
 }
 
 function cleanDescription(value) {
   const text = plainText(value);
+
   if (!text) return '';
 
-  // Exclure les notes techniques des catalogues.
+  // Ne pas considérer les informations techniques
+  // d'une bibliothèque comme un résumé.
   if (/^(code à barres commercial|ean\b|isbn\b|identifiant commercial|numéro commercial)/i.test(text)) {
     return '';
   }
+
   if (/^\d{10,13}$/.test(text)) return '';
 
   return text;
@@ -80,20 +84,29 @@ function cleanDescription(value) {
 
 function emptyBook(isbn, source = '') {
   return {
-    isbn, title: '', authors: [], description: '',
-    categories: [], cover: '', publishedDate: '',
-    pageCount: '', publisher: '', language: '', source
+    isbn,
+    title: '',
+    authors: [],
+    description: '',
+    categories: [],
+    cover: '',
+    publishedDate: '',
+    pageCount: '',
+    publisher: '',
+    language: '',
+    source
   };
 }
 
 function errorMessage(error) {
-  if (error.name === 'AbortError') {
+  if (error?.name === 'AbortError') {
     return 'Délai dépassé';
   }
-  return error.message || 'Erreur inconnue';
+  if (error instanceof TypeError) {
+    return 'Connexion ou accès réseau refusé';
+  }
+  return error?.message || 'Erreur inconnue';
 }
-
-// ---------- REQUÊTES ----------
 
 async function request(url, format = 'json') {
   const controller = new AbortController();
@@ -108,20 +121,21 @@ async function request(url, format = 'json') {
     });
 
     if (!response.ok) {
-      const error = new Error(
-        `HTTP ${response.status}`
-      );
+      const error = new Error(`HTTP ${response.status}`);
       error.status = response.status;
       throw error;
     }
 
     if (format === 'xml') {
       const xml = new DOMParser().parseFromString(
-        await response.text(), 'application/xml'
+        await response.text(),
+        'application/xml'
       );
+
       if (xml.querySelector('parsererror')) {
-        throw new Error('XML invalide');
+        throw new Error('Réponse XML invalide');
       }
+
       return xml;
     }
 
@@ -131,29 +145,153 @@ async function request(url, format = 'json') {
   }
 }
 
+// Respecter un intervalle entre les requêtes
+// envoyées à Open Library.
 async function openLibraryRequest(url) {
+  const now = Date.now();
   const wait = Math.max(
-    0, nextOpenLibraryRequest - Date.now()
+    0, nextOpenLibraryRequest - now
   );
-  nextOpenLibraryRequest = Date.now() + wait + 1100;
+
+  nextOpenLibraryRequest = now + wait + 1150;
 
   if (wait) {
     await new Promise(resolve => setTimeout(resolve, wait));
   }
+
   return request(url);
 }
 
 function xmlValues(node, name) {
-  return [...node.getElementsByTagNameNS('*', name)]
-    .map(item => item.textContent.trim())
-    .filter(Boolean);
+  return [
+    ...node.getElementsByTagNameNS('*', name)
+  ].map(item => item.textContent.trim()).filter(Boolean);
 }
 
 function firstXml(node, name) {
   return xmlValues(node, name)[0] || '';
 }
 
-// ---------- COUVERTURES ----------
+// ===========================================
+// RECONNAISSANCE TITRE + AUTEUR
+// ===========================================
+
+function normalized(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function titleCore(value) {
+  return normalized(
+    cleanTitle(value).split(/\s*[:–—]\s*/)[0]
+  );
+}
+
+function sameTitle(a, b) {
+  const x = titleCore(a);
+  const y = titleCore(b);
+
+  if (!x || !y) return false;
+  return x === y;
+}
+
+function sameAuthor(a, b) {
+  const x = normalized(cleanAuthor(a))
+    .split(' ').filter(Boolean).sort();
+  const y = normalized(cleanAuthor(b))
+    .split(' ').filter(Boolean).sort();
+
+  return x.length > 0 &&
+    x.length === y.length &&
+    x.every((word, i) => word === y[i]);
+}
+
+function matchesBook(title, authors, candidate) {
+  if (!sameTitle(title, candidate.title)) {
+    return false;
+  }
+
+  return (candidate.authors || []).some(a =>
+    authors.some(b => sameAuthor(a, b))
+  );
+}
+
+// ===========================================
+// CATÉGORIES INTERNATIONALES
+// ===========================================
+
+export function normaliseCategories(subjects) {
+  const rules = [
+    ['Dark romance', /dark romance|romantic suspense/i],
+    ['Romance', /romance|romantic fiction|love stories|amour|sentimental|new adult/i],
+    ['Policier & thriller', /thriller|mystery|detective|crime|policier|suspense|roman noir/i],
+    ['Fantasy', /\bfantasy\b|wizard|sorcery|high fantasy|urban fantasy/i],
+    ['Fantastique', /fantastique|supernatural|paranormal/i],
+    ['Science-fiction', /science fiction|sci-fi|dystopi|space opera/i],
+    ['Aventure & action', /adventure|action|aventur/i],
+    ['Histoire', /historical fiction|world history|histoire|world war/i],
+    ['Biographie', /biograph|memoir|autobiograph/i],
+    ['Jeunesse', /juvenile|children|young adult|jeunesse|enfant/i],
+    ['BD & manga', /comic|graphic novel|manga|manhwa|bande dessinée/i],
+    ['Développement personnel', /self.help|personal development|bien-être/i],
+    ['Psychologie', /psychology|psychologie/i],
+    ['Cuisine', /cooking|cookbook|cuisine|gastronom/i],
+    ['Voyage', /travel|voyage|tourism/i],
+    ['Poésie', /poetry|poésie/i],
+    ['Philosophie', /philosophy|philosophie/i],
+    ['Science & technique', /engineering|technology|computer science|physics|chemistry|informatique/i],
+    ['Médecine & santé', /medicine|medical|nursing|health|médecine/i],
+    ['Horreur', /horror|épouvante|terreur/i],
+    ['Humour', /humour|humor|comedy/i],
+    ['Religion & spiritualité', /religion|spiritual|theology/i],
+    ['Art & photographie', /art history|photography|photographie|painting/i],
+    ['Économie & société', /economics|sociology|économie/i],
+    ['Éducation', /education|teaching|pédagogie/i]
+  ];
+
+  const result = [];
+
+  for (const subject of subjects || []) {
+    const value = typeof subject === 'string'
+      ? subject
+      : subject?.name || '';
+
+    for (const [name, regex] of rules) {
+      if (regex.test(value) && !result.includes(name)) {
+        result.push(name);
+      }
+    }
+  }
+
+  return result.slice(0, 5);
+}
+
+// Classification complémentaire uniquement
+// si une indication de genre explicite existe.
+function categoriesFromDescription(description) {
+  const rules = [
+    ['Dark romance', /\bdark romance\b/i],
+    ['Romance', /\bromance\b|romantic novel|romantic fiction|histoire d'amour|triangle amoureux/i],
+    ['Fantasy', /\bhigh fantasy\b|\burban fantasy\b/i],
+    ['Science-fiction', /\bscience.fiction\b|space opera/i],
+    ['Policier & thriller', /\bthriller\b|police procedural/i],
+    ['Horreur', /\bhorror novel\b|roman d'horreur/i],
+    ['BD & manga', /\bmanga\b|\bmanhwa\b|graphic novel/i]
+  ];
+
+  return rules.filter(([, regex]) =>
+    regex.test(description || '')
+  ).map(([name]) => name);
+}
+
+// ===========================================
+// COUVERTURES
+// ===========================================
 
 function coverFromId(id) {
   return Number(id) > 0
@@ -166,59 +304,60 @@ function imageExists(url) {
     if (!url) return resolve(false);
 
     const img = new Image();
-    let finished = false;
+    let done = false;
 
-    const finish = ok => {
-      if (finished) return;
-      finished = true;
+    const finish = value => {
+      if (done) return;
+      done = true;
       clearTimeout(timer);
       img.onload = null;
       img.onerror = null;
-      resolve(ok);
+      resolve(value);
     };
 
-    const timer = setTimeout(() => finish(false), 4500);
+    const timer = setTimeout(
+      () => finish(false), 4500
+    );
 
     img.onload = () => finish(
-      img.naturalWidth >= 40 && img.naturalHeight >= 50
+      img.naturalWidth >= 40 &&
+      img.naturalHeight >= 50
     );
+
     img.onerror = () => finish(false);
     img.src = url;
   });
 }
 
-async function findCover(isbn, existingCover = '') {
-  const code13 = isbn.length === 10
+async function findCover(isbn, existing = '') {
+  const code = isbn.length === 10
     ? isbn10To13(isbn) : isbn;
 
-  const candidates = [];
+  const urls = [];
 
-  // 1. Nouvelle API Couvertures de la BnF.
-  if (/^\d{13}$/.test(code13)) {
-    candidates.push(
-      `https://openapi.bnf.fr/couverture/image/image/recupererImage?EAN=${code13}&couverture=1`
+  if (/^\d{13}$/.test(code)) {
+    urls.push(
+      `https://openapi.bnf.fr/couverture/image/image/recupererImage?EAN=${code}&couverture=1`
     );
   }
 
-  // 2. Couverture exacte par ISBN chez Open Library.
-  candidates.push(
+  urls.push(
     `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`
   );
 
-  // 3. Couverture déjà obtenue d'un autre catalogue.
-  if (existingCover) {
-    candidates.push(existingCover);
-  }
+  if (existing) urls.push(existing);
 
-  const results = await Promise.all(
-    candidates.map(url => imageExists(url))
+  const valid = await Promise.all(
+    urls.map(imageExists)
   );
 
-  const index = results.findIndex(Boolean);
-  return index >= 0 ? candidates[index] : '';
+  const index = valid.findIndex(Boolean);
+  return index >= 0 ? urls[index] : '';
 }
 
-// ---------- OPEN LIBRARY ----------
+// ===========================================
+// SOURCE 1 : OPEN LIBRARY PAR ISBN
+// ===========================================
 
 async function lookupOpenLibrary(isbn) {
   let edition = null;
@@ -228,75 +367,116 @@ async function lookupOpenLibrary(isbn) {
     edition = await openLibraryRequest(
       `https://openlibrary.org/isbn/${isbn}.json`
     );
-  } catch {
-    // L'édition n'est pas forcément présente.
-  }
+  } catch {}
 
   const params = new URLSearchParams({
     isbn,
     limit: '3',
-    fields: 'key,title,author_name,first_publish_year,cover_i,subject,isbn'
+    fields: 'key,title,author_name,subject,cover_i,isbn'
   });
 
   try {
     const data = await openLibraryRequest(
       `https://openlibrary.org/search.json?${params}`
     );
+
     search = (data.docs || []).find(item =>
-      (item.isbn || []).some(id => sameIsbn(id, isbn))
+      (item.isbn || []).some(id =>
+        sameIsbn(id, isbn)
+      )
     ) || null;
-  } catch {
-    // On conserve la fiche d'édition si disponible.
-  }
+  } catch {}
 
   let work = null;
-  const key = edition?.works?.[0]?.key || search?.key;
+  const key = edition?.works?.[0]?.key ||
+    search?.key || '';
 
-  if (key && /^\/works\/OL\d+W$/.test(key)) {
+  const workPath = key.startsWith('/works/')
+    ? key
+    : `/works/${key}`;
+
+  if (/^\/works\/OL\d+W$/.test(workPath)) {
     try {
       work = await openLibraryRequest(
-        `https://openlibrary.org${key}.json`
+        `https://openlibrary.org${workPath}.json`
       );
     } catch {}
   }
 
   const book = emptyBook(isbn, 'Open Library');
+
   book.title = cleanTitle(
     edition?.title || search?.title || work?.title
   );
+
   book.authors = (search?.author_name || [])
     .map(cleanAuthor).filter(Boolean);
+
+  // Auteur de la fiche d'édition, si la recherche
+  // n'a pas retourné son nom.
+  if (!book.authors.length) {
+    const refs = (
+      edition?.authors?.length
+        ? edition.authors
+        : work?.authors || []
+    ).slice(0, 3);
+
+    for (const ref of refs) {
+      const authorKey = ref.key || ref.author?.key;
+      if (!/^\/authors\/OL\d+A$/.test(authorKey || '')) {
+        continue;
+      }
+      try {
+        const author = await openLibraryRequest(
+          `https://openlibrary.org${authorKey}.json`
+        );
+        if (author.name) {
+          book.authors.push(cleanAuthor(author.name));
+        }
+      } catch {}
+    }
+  }
+
   book.description = cleanDescription(
     edition?.description || work?.description
   );
+
   book.categories = normaliseCategories([
     ...(edition?.subjects || []),
     ...(search?.subject || []),
     ...(work?.subjects || [])
   ]);
+
   book.cover = coverFromId(
     edition?.covers?.find(id => id > 0) ||
     search?.cover_i ||
     work?.covers?.find(id => id > 0)
   );
+
   book.publishedDate =
     edition?.publish_date ||
-    work?.first_publish_date ||
-    String(search?.first_publish_year || '');
+    work?.first_publish_date || '';
+
   book.pageCount =
-    edition?.number_of_pages || edition?.pagination || '';
+    edition?.number_of_pages ||
+    edition?.pagination || '';
+
   book.publisher = edition?.publishers?.[0] || '';
   book.language =
     edition?.languages?.[0]?.key?.split('/').pop() || '';
 
-  if (!book.title) throw new Error('Livre non trouvé');
+  if (!book.title) throw new Error('ISBN absent');
+
   return book;
 }
 
-// ---------- INVENTAIRE ----------
+// ===========================================
+// SOURCE 2 : INVENTAIRE
+// ===========================================
 
 async function lookupInventaire(isbn) {
   const uri = `isbn:${isbn}`;
+
   const params = new URLSearchParams({
     action: 'by-uris',
     uris: uri
@@ -307,7 +487,7 @@ async function lookupInventaire(isbn) {
   );
 
   const entity = data.entities?.[uri];
-  if (!entity) throw new Error('Aucune notice');
+  if (!entity) throw new Error('Aucune entité');
 
   const labels = entity.labels || {};
   const book = emptyBook(isbn, 'Inventaire');
@@ -326,7 +506,9 @@ async function lookupInventaire(isbn) {
   return book;
 }
 
-// ---------- BNF ----------
+// ===========================================
+// SOURCE 3 : BIBLIOTHÈQUE DE FRANCE
+// ===========================================
 
 async function lookupBnF(isbn) {
   const params = new URLSearchParams({
@@ -353,11 +535,13 @@ async function lookupBnF(isbn) {
   const record = records[0];
   const book = emptyBook(isbn, 'BnF');
 
-  book.title = cleanTitle(firstXml(record, 'title'));
+  book.title = cleanTitle(
+    firstXml(record, 'title')
+  );
+
   book.authors = xmlValues(record, 'creator')
     .map(cleanAuthor).filter(Boolean);
 
-  // Ignorer les descriptions techniques, notamment l'EAN.
   book.description = xmlValues(record, 'description')
     .map(cleanDescription)
     .find(Boolean) || '';
@@ -371,38 +555,86 @@ async function lookupBnF(isbn) {
   book.language = firstXml(record, 'language');
 
   const formats = xmlValues(record, 'format').join(' ');
-  const pages = formats.match(/\b(\d{2,5})\s*p(?:ages?)?\b/i);
+  const pages = formats.match(
+    /\b(\d{2,5})\s*p(?:ages?)?\b/i
+  );
+
   if (pages) book.pageCount = Number(pages[1]);
 
   if (!book.title) throw new Error('Titre absent');
   return book;
 }
 
-// ---------- GOOGLE BOOKS ----------
+// ===========================================
+// SOURCE 4 : GOOGLE BOOKS PAR ISBN
+// ===========================================
 
-async function lookupGoogleBooks(isbn, apiKey = '') {
+async function googleRequest(params, apiKey = '') {
+  const cooldown = Number(
+    localStorage.getItem('mb-google-pause') || 0
+  );
+
+  googleBlockedUntil = Math.max(
+    googleBlockedUntil, cooldown
+  );
+
   if (Date.now() < googleBlockedUntil) {
-    throw new Error('Google Books temporairement limité');
+    throw new Error('Quota Google temporairement limité');
   }
 
+  if (apiKey) params.set('key', apiKey);
+
+  try {
+    return await request(
+      `https://www.googleapis.com/books/v1/volumes?${params}`
+    );
+  } catch (error) {
+    if (error.status === 429) {
+      googleBlockedUntil =
+        Date.now() + GOOGLE_PAUSE_MS;
+
+      try {
+        localStorage.setItem(
+          'mb-google-pause',
+          String(googleBlockedUntil)
+        );
+      } catch {}
+    }
+    throw error;
+  }
+}
+
+function googleBook(info, isbn, source = 'Google Books') {
+  const book = emptyBook(isbn, source);
+
+  book.title = cleanTitle(info.title);
+  book.authors = (info.authors || [])
+    .map(cleanAuthor).filter(Boolean);
+  book.description = cleanDescription(info.description);
+  book.categories = normaliseCategories(info.categories || []);
+
+  book.cover = (
+    info.imageLinks?.thumbnail ||
+    info.imageLinks?.smallThumbnail ||
+    ''
+  ).replace(/^http:/, 'https:');
+
+  book.publishedDate = info.publishedDate || '';
+  book.pageCount = info.pageCount || '';
+  book.publisher = info.publisher || '';
+  book.language = info.language || '';
+
+  return book;
+}
+
+async function lookupGoogleBooks(isbn, apiKey = '') {
   const params = new URLSearchParams({
     q: `isbn:${isbn}`,
     maxResults: '5',
     printType: 'books'
   });
-  if (apiKey) params.set('key', apiKey);
 
-  let data;
-  try {
-    data = await request(
-      `https://www.googleapis.com/books/v1/volumes?${params}`
-    );
-  } catch (error) {
-    if (error.status === 429) {
-      googleBlockedUntil = Date.now() + GOOGLE_PAUSE;
-    }
-    throw error;
-  }
+  const data = await googleRequest(params, apiKey);
 
   const item = (data.items || []).find(candidate =>
     (candidate.volumeInfo?.industryIdentifiers || [])
@@ -411,28 +643,17 @@ async function lookupGoogleBooks(isbn, apiKey = '') {
 
   if (!item) throw new Error('Édition absente');
 
-  const info = item.volumeInfo || {};
-  const book = emptyBook(isbn, 'Google Books');
-
-  book.title = cleanTitle(info.title);
-  book.authors = (info.authors || [])
-    .map(cleanAuthor).filter(Boolean);
-  book.description = cleanDescription(info.description);
-  book.categories = normaliseCategories(info.categories || []);
-  book.cover = (
-    info.imageLinks?.thumbnail ||
-    info.imageLinks?.smallThumbnail || ''
-  ).replace(/^http:/, 'https:');
-  book.publishedDate = info.publishedDate || '';
-  book.pageCount = info.pageCount || '';
-  book.publisher = info.publisher || '';
-  book.language = info.language || '';
+  const book = googleBook(
+    item.volumeInfo || {}, isbn
+  );
 
   if (!book.title) throw new Error('Titre absent');
   return book;
 }
 
-// ---------- CROSSREF ----------
+// ===========================================
+// SOURCE 5 : CROSSREF
+// ===========================================
 
 async function lookupCrossref(isbn) {
   const params = new URLSearchParams({
@@ -444,13 +665,16 @@ async function lookupCrossref(isbn) {
     `https://api.crossref.org/works?${params}`
   );
 
-  const item = (data.message?.items || []).find(work =>
-    (work.ISBN || []).some(id => sameIsbn(id, isbn))
+  const item = (data.message?.items || []).find(
+    work => (work.ISBN || []).some(
+      id => sameIsbn(id, isbn)
+    )
   );
 
   if (!item) throw new Error('Publication absente');
 
   const book = emptyBook(isbn, 'Crossref');
+
   book.title = cleanTitle(item.title?.[0]);
   book.authors = (item.author || []).map(a =>
     [a.given, a.family].filter(Boolean).join(' ')
@@ -467,7 +691,9 @@ async function lookupCrossref(isbn) {
   return book;
 }
 
-// ---------- BIBLIOTHÈQUE DU JAPON ----------
+// ===========================================
+// SOURCE 6 : BIBLIOTHÈQUE DU JAPON
+// ===========================================
 
 async function lookupJapan(isbn) {
   const params = new URLSearchParams({
@@ -506,54 +732,172 @@ async function lookupJapan(isbn) {
   return book;
 }
 
-// ---------- CATÉGORIES ----------
+// ===========================================
+// NOUVEAU : RECHERCHE PAR TITRE + AUTEUR
+// DANS LES AUTRES ÉDITIONS OPEN LIBRARY
+// ===========================================
 
-export function normaliseCategories(subjects) {
-  const rules = [
-    ['Dark romance', /dark romance|romantic suspense/i],
-    ['Romance', /romance|love stories|amour|sentimental|new adult/i],
-    ['Policier & thriller', /thriller|mystery|detective|crime|policier|suspense/i],
-    ['Fantasy', /fantasy|magic|wizard|sorcery/i],
-    ['Fantastique', /fantastique|supernatural|paranormal/i],
-    ['Science-fiction', /science fiction|sci-fi|dystopi|space opera/i],
-    ['Aventure & action', /adventure|action|aventur/i],
-    ['Histoire', /history|historical|histoire|world war/i],
-    ['Biographie', /biograph|memoir|autobiograph/i],
-    ['Jeunesse', /juvenile|children|young adult|jeunesse|enfant/i],
-    ['BD & manga', /comic|graphic novel|manga|bande dessinée|manhwa/i],
-    ['Développement personnel', /self-help|personal development|bien-être/i],
-    ['Psychologie', /psychology|psychologie/i],
-    ['Cuisine', /cooking|cookbook|food|cuisine|gastronom/i],
-    ['Voyage', /travel|voyage|tourism/i],
-    ['Poésie', /poetry|poésie/i],
-    ['Philosophie', /philosophy|philosophie/i],
-    ['Science & technique', /engineering|technology|computer science|physics|chemistry|informatique/i],
-    ['Médecine & santé', /medicine|medical|nursing|health|médecine/i],
-    ['Horreur', /horror|épouvante|terreur/i],
-    ['Humour', /humour|humor|comedy/i],
-    ['Religion & spiritualité', /religion|spiritual|theology/i],
-    ['Art & photographie', /art history|photography|photographie|painting/i],
-    ['Économie & société', /economics|sociology|politics|économie/i],
-    ['Éducation', /education|teaching|pédagogie/i]
-  ];
+async function enrichFromOpenLibrary(title, authors) {
+  if (!title || !authors?.length) return null;
 
-  const categories = [];
+  const params = new URLSearchParams({
+    title: cleanTitle(title),
+    author: authors[0],
+    limit: '12',
+    fields: 'key,title,author_name,subject,cover_i'
+  });
 
-  for (const subject of subjects || []) {
-    const value = typeof subject === 'string'
-      ? subject : subject?.name || '';
+  const data = await openLibraryRequest(
+    `https://openlibrary.org/search.json?${params}`
+  );
 
-    for (const [name, regex] of rules) {
-      if (regex.test(value) && !categories.includes(name)) {
-        categories.push(name);
+  const matches = (data.docs || []).filter(doc =>
+    matchesBook(title, authors, {
+      title: doc.title,
+      authors: doc.author_name || []
+    })
+  ).slice(0, 3);
+
+  if (!matches.length) {
+    throw new Error('Aucune édition correspondante');
+  }
+
+  const extra = emptyBook('', 'Open Library (autres éditions)');
+  extra.title = title;
+  extra.authors = authors;
+
+  for (const doc of matches) {
+    extra.categories = [
+      ...new Set([
+        ...extra.categories,
+        ...normaliseCategories(doc.subject || [])
+      ])
+    ].slice(0, 5);
+
+    const key = doc.key || '';
+    const workPath = key.startsWith('/works/')
+      ? key : `/works/${key}`;
+
+    if (!/^\/works\/OL\d+W$/.test(workPath)) {
+      continue;
+    }
+
+    let work = null;
+
+    try {
+      work = await openLibraryRequest(
+        `https://openlibrary.org${workPath}.json`
+      );
+    } catch {}
+
+    if (work) {
+      if (!extra.description) {
+        extra.description = cleanDescription(work.description);
       }
+
+      extra.categories = [
+        ...new Set([
+          ...extra.categories,
+          ...normaliseCategories(work.subjects || [])
+        ])
+      ].slice(0, 5);
+    }
+
+    // Certaines fiches d'édition possèdent un résumé
+    // alors que la fiche générale de l'ouvrage
+    // n'en contient aucun.
+    if (!extra.description || !extra.categories.length) {
+      try {
+        const editions = await openLibraryRequest(
+          `https://openlibrary.org${workPath}/editions.json?limit=30`
+        );
+
+        const entries = editions.entries || [];
+
+        for (const edition of entries) {
+          const description = cleanDescription(
+            edition.description
+          );
+
+          if (!extra.description && description.length >= 60) {
+            extra.description = description;
+          }
+
+          extra.categories = [
+            ...new Set([
+              ...extra.categories,
+              ...normaliseCategories([
+                ...(edition.subjects || []),
+                ...(edition.genres || [])
+              ])
+            ])
+          ].slice(0, 5);
+
+          if (extra.description && extra.categories.length) {
+            break;
+          }
+        }
+      } catch {}
+    }
+
+    if (extra.description && extra.categories.length) {
+      break;
     }
   }
 
-  return categories.slice(0, 5);
+  if (!extra.description && !extra.categories.length) {
+    throw new Error('Aucun résumé ou genre supplémentaire');
+  }
+
+  return extra;
 }
 
-// ---------- FUSION DES DONNÉES ----------
+// ===========================================
+// NOUVEAU : GOOGLE BOOKS PAR TITRE + AUTEUR
+// ===========================================
+
+async function enrichFromGoogle(title, authors, apiKey = '') {
+  if (!title || !authors?.length) return null;
+
+  const q = `intitle:"${title.replace(/"/g, '')}" ` +
+            `inauthor:"${authors[0].replace(/"/g, '')}"`;
+
+  const params = new URLSearchParams({
+    q,
+    maxResults: '10',
+    printType: 'books'
+  });
+
+  const data = await googleRequest(params, apiKey);
+
+  const candidates = (data.items || [])
+    .map(item => item.volumeInfo || {})
+    .filter(info => matchesBook(title, authors, info))
+    .sort((a, b) => {
+      const score = item =>
+        (item.description ? 4 : 0) +
+        (item.categories?.length ? 2 : 0) +
+        (item.language === 'fr' ? 1 : 0);
+
+      return score(b) - score(a);
+    });
+
+  if (!candidates.length) {
+    throw new Error('Aucun livre correspondant');
+  }
+
+  const book = googleBook(
+    candidates[0], '', 'Google Books (autres éditions)'
+  );
+
+  // On retient uniquement les informations communes
+  // à l'ouvrage : résumé et genres.
+  return book;
+}
+
+// ===========================================
+// FUSION DES FICHES EXACTES PAR ISBN
+// ===========================================
 
 function mergeBooks(primary, fallback) {
   if (!primary?.title) return fallback || primary;
@@ -565,21 +909,53 @@ function mergeBooks(primary, fallback) {
     'title', 'description', 'cover', 'publishedDate',
     'pageCount', 'publisher', 'language'
   ]) {
-    if (!result[field]) result[field] = fallback[field] || '';
+    if (!result[field]) {
+      result[field] = fallback[field] || '';
+    }
   }
 
   if (!result.authors?.length) {
     result.authors = fallback.authors || [];
   }
 
-  result.categories = [...new Set([
-    ...(primary.categories || []),
-    ...(fallback.categories || [])
-  ])].slice(0, 5);
+  result.categories = [
+    ...new Set([
+      ...(primary.categories || []),
+      ...(fallback.categories || [])
+    ])
+  ].slice(0, 5);
 
-  if (fallback.source && !result.source.includes(fallback.source)) {
+  if (
+    fallback.source &&
+    !result.source.includes(fallback.source)
+  ) {
     result.source += ' + ' + fallback.source;
   }
+
+  return result;
+}
+
+// Fusion prudente d'informations venant d'une
+// AUTRE édition du même ouvrage.
+function mergeEnrichment(book, extra) {
+  if (!extra) return book;
+
+  const result = { ...book };
+
+  if (!result.description && extra.description) {
+    result.description = extra.description;
+  }
+
+  result.categories = [
+    ...new Set([
+      ...(result.categories || []),
+      ...(extra.categories || [])
+    ])
+  ].slice(0, 5);
+
+  // Conserver ISBN, couverture, pages,
+  // éditeur et date de l'édition scannée.
+  result.source += ' + ' + extra.source;
 
   return result;
 }
@@ -589,20 +965,31 @@ function isComplete(book) {
     book?.title &&
     book.authors?.length &&
     book.description &&
-    book.cover &&
-    book.categories?.length
+    book.categories?.length &&
+    book.cover
   );
 }
 
-// ---------- CACHE LOCAL ----------
+// ===========================================
+// CACHE MÉTADONNÉES
+// ===========================================
 
 function cachedBook(isbn) {
   try {
-    const raw = localStorage.getItem(CACHE_PREFIX + isbn);
+    const raw = localStorage.getItem(
+      CACHE_PREFIX + isbn
+    );
     if (!raw) return null;
 
     const entry = JSON.parse(raw);
-    if (Date.now() - entry.savedAt > CACHE_TTL) {
+
+    // Une fiche incomplète sera retentée plus tôt.
+    const duration = entry.book?.description &&
+      entry.book?.categories?.length
+      ? 7 * 86400000
+      : 6 * 3600000;
+
+    if (Date.now() - entry.savedAt > duration) {
       localStorage.removeItem(CACHE_PREFIX + isbn);
       return null;
     }
@@ -627,13 +1014,17 @@ function saveCache(isbn, book) {
   } catch {}
 }
 
-// ---------- RECHERCHE PRINCIPALE ----------
+// ===========================================
+// MOTEUR PRINCIPAL
+// ===========================================
 
 export async function lookupBook(isbn, googleApiKey = '') {
   const code = cleanIsbn(isbn);
   const cached = cachedBook(code);
 
-  if (cached) return { ...cached, warnings: [] };
+  if (cached) {
+    return { ...cached, warnings: [] };
+  }
 
   let result = null;
   const warnings = [];
@@ -644,7 +1035,9 @@ export async function lookupBook(isbn, googleApiKey = '') {
         try {
           return await lookup();
         } catch (error) {
-          warnings.push(`${name} : ${errorMessage(error)}`);
+          warnings.push(
+            `${name} : ${errorMessage(error)}`
+          );
           return null;
         }
       })
@@ -657,21 +1050,23 @@ export async function lookupBook(isbn, googleApiKey = '') {
     }
   }
 
-  // Sources internationales.
+  // 1. Recherche ISBN internationale.
   await searchGroup([
     ['Open Library', () => lookupOpenLibrary(code)],
     ['Inventaire', () => lookupInventaire(code)]
   ]);
 
-  // Sources françaises et complémentaires.
+  // 2. Recherche ISBN française et Google Books.
   if (!isComplete(result)) {
     await searchGroup([
       ['BnF', () => lookupBnF(code)],
-      ['Google Books', () => lookupGoogleBooks(code, googleApiKey)]
+      ['Google Books', () =>
+        lookupGoogleBooks(code, googleApiKey)
+      ]
     ]);
   }
 
-  // Publications savantes et éditions japonaises.
+  // 3. Dernier recours si aucun titre n'est trouvé.
   if (!result?.title) {
     await searchGroup([
       ['Crossref', () => lookupCrossref(code)],
@@ -679,26 +1074,103 @@ export async function lookupBook(isbn, googleApiKey = '') {
     ]);
   }
 
-  if (result?.title) {
-    // Nettoyage final, quelle que soit la source.
-    result.title = cleanTitle(result.title);
-    result.authors = (result.authors || [])
-      .map(cleanAuthor).filter(Boolean);
-    result.description = cleanDescription(result.description);
-
-    // Recherche supplémentaire de couverture.
+  // 4. Recherche intelligente du résumé
+  // et des catégories dans d'autres éditions.
+  if (
+    result?.title &&
+    result.authors?.length &&
+    (!result.description || !result.categories?.length)
+  ) {
     try {
-      result.cover = await findCover(code, result.cover);
-    } catch {
-      result.cover = result.cover || '';
+      const extra = await enrichFromOpenLibrary(
+        result.title,
+        result.authors
+      );
+
+      result = mergeEnrichment(result, extra);
+    } catch (error) {
+      warnings.push(
+        'Recherche des autres éditions : ' +
+        errorMessage(error)
+      );
+    }
+  }
+
+  // 5. Google Books par titre et auteur,
+  // uniquement si des données manquent encore.
+  if (
+    result?.title &&
+    result.authors?.length &&
+    (!result.description || !result.categories?.length)
+  ) {
+    try {
+      const extra = await enrichFromGoogle(
+        result.title,
+        result.authors,
+        googleApiKey
+      );
+
+      result = mergeEnrichment(result, extra);
+    } catch (error) {
+      warnings.push(
+        'Google Books titre/auteur : ' +
+        errorMessage(error)
+      );
+    }
+  }
+
+  if (result?.title) {
+    // 6. Nettoyage final.
+    result.title = cleanTitle(result.title);
+
+    result.authors = [
+      ...new Set(
+        (result.authors || [])
+          .map(cleanAuthor)
+          .filter(Boolean)
+      )
+    ];
+
+    result.description = cleanDescription(
+      result.description
+    );
+
+    // Catégories complémentaires si le résumé
+    // comporte une indication claire de genre.
+    if (!result.categories?.length) {
+      result.categories = categoriesFromDescription(
+        result.description
+      );
     }
 
+    // 7. Couverture de l'édition scannée,
+    // sans utiliser celle d'une édition étrangère.
+    try {
+      result.cover = await findCover(
+        code, result.cover
+      );
+    } catch {}
+
+    result.isbn = code;
     result.warnings = warnings;
+
     saveCache(code, result);
+
+    if (warnings.length) {
+      console.info(
+        'Catalogues partiellement indisponibles :',
+        warnings
+      );
+    }
+
     return result;
   }
 
-  console.warn('Recherche ISBN échouée :', code, warnings);
+  console.warn(
+    'ISBN introuvable :',
+    code,
+    warnings
+  );
 
   return {
     ...emptyBook(code, 'Saisie manuelle'),
