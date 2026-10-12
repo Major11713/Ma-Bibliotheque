@@ -1,6 +1,6 @@
 
-const VERSION = 'ma-bibliotheque-v1.0.1-b8';
-const RUNTIME = `${VERSION}-runtime`;
+const VERSION = 'ma-bibliotheque-v1.0.2-b9';
+const RUNTIME = VERSION + '-runtime';
 
 const APP_SHELL = [
   './',
@@ -19,101 +19,88 @@ const APP_SHELL = [
   './icons/apple-touch-icon.png'
 ];
 
-// Installation du nouveau cache
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(VERSION)
-      .then(async (cache) => {
-        for (const url of APP_SHELL) {
-          const response = await fetch(url, {
-            cache: 'reload'
-          });
+self.addEventListener('install', event => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(VERSION);
 
-          if (!response.ok) {
-            throw new Error(
-              `Impossible de mettre en cache : ${url}`
-            );
-          }
+    for (const file of APP_SHELL) {
+      const response = await fetch(file, {
+        cache: 'reload'
+      });
 
-          await cache.put(url, response);
+      if (!response.ok) {
+        throw new Error('Fichier absent : ' + file);
+      }
+
+      await cache.put(file, response);
+    }
+
+    await self.skipWaiting();
+  })());
+});
+
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+
+    await Promise.all(keys
+      .filter(key =>
+        key.startsWith('ma-bibliotheque-') &&
+        key !== VERSION &&
+        key !== RUNTIME
+      )
+      .map(key => caches.delete(key))
+    );
+
+    await self.clients.claim();
+  })());
+});
+
+self.addEventListener('fetch', event => {
+  const req = event.request;
+
+  if (req.method !== 'GET') return;
+
+  const url = new URL(req.url);
+
+  // Les API externes gèrent leurs propres erreurs.
+  if (url.origin !== self.location.origin) {
+    if (req.destination === 'image') {
+      event.respondWith((async () => {
+        const cached = await caches.match(req);
+        if (cached) return cached;
+
+        const response = await fetch(req);
+
+        if (response.ok) {
+          const cache = await caches.open(RUNTIME);
+          await cache.put(req, response.clone());
         }
-      })
-      .then(() => self.skipWaiting())
-  );
-});
 
-// Suppression des anciens caches
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(
-        keys
-          .filter(key => key !== VERSION && key !== RUNTIME)
-          .map(key => caches.delete(key))
-      ))
-      .then(() => self.clients.claim())
-  );
-});
-
-// Gestion des fichiers hors connexion
-self.addEventListener('fetch', (event) => {
-  const request = event.request;
-
-  if (request.method !== 'GET') return;
-
-  const url = new URL(request.url);
-
-  // Pages de navigation
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request).catch(() => caches.match('./index.html'))
-    );
+        return response;
+      })());
+    }
     return;
   }
 
-  // Fichiers de l'application
-  if (url.origin === self.location.origin) {
-    event.respondWith(
-      caches.match(request).then(cached => {
-        if (cached) return cached;
+  // Navigation et scripts : priorité à la version récente.
+  event.respondWith((async () => {
+    try {
+      const response = await fetch(req);
 
-        return fetch(request).then(response => {
-          if (response.ok) {
-            const copy = response.clone();
+      if (response.ok) {
+        const cache = await caches.open(RUNTIME);
+        await cache.put(req, response.clone());
+      }
 
-            caches.open(RUNTIME).then(cache => {
-              cache.put(request, copy);
-            });
-          }
-
-          return response;
-        });
-      })
-    );
-
-    return;
-  }
-
-  // Couvertures des livres
-  if (request.destination === 'image') {
-    event.respondWith(
-      caches.match(request).then(cached => {
-        if (cached) return cached;
-
-        return fetch(request)
-          .then(response => {
-            const copy = response.clone();
-
-            caches.open(RUNTIME).then(cache => {
-              cache.put(request, copy);
-            });
-
-            return response;
-          })
-          .catch(() => new Response('', {
-            status: 503
-          }));
-      })
-    );
-  }
+      return response;
+    } catch {
+      return (
+        await caches.match(req) ||
+        (req.mode === 'navigate'
+          ? await caches.match('./index.html')
+          : Response.error())
+      );
+    }
+  })());
 });
