@@ -1,5 +1,7 @@
-const VERSION = 'ma-bibliotheque-v1.0.0-b7';
+
+const VERSION = 'ma-bibliotheque-v1.0.1-b8';
 const RUNTIME = `${VERSION}-runtime`;
+
 const APP_SHELL = [
   './',
   './index.html',
@@ -17,54 +19,101 @@ const APP_SHELL = [
   './icons/apple-touch-icon.png'
 ];
 
+// Installation du nouveau cache
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(VERSION)
-      .then((cache) => Promise.all(APP_SHELL.map(async (url) => {
-        const response = await fetch(url, { cache: 'reload' });
-        if (!response.ok) throw new Error(`Impossible de mettre en cache ${url}`);
-        await cache.put(url, response);
-      })))
+      .then(async (cache) => {
+        for (const url of APP_SHELL) {
+          const response = await fetch(url, {
+            cache: 'reload'
+          });
+
+          if (!response.ok) {
+            throw new Error(
+              `Impossible de mettre en cache : ${url}`
+            );
+          }
+
+          await cache.put(url, response);
+        }
+      })
       .then(() => self.skipWaiting())
   );
 });
 
+// Suppression des anciens caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => ![VERSION, RUNTIME].includes(key)).map((key) => caches.delete(key))))
+      .then(keys => Promise.all(
+        keys
+          .filter(key => key !== VERSION && key !== RUNTIME)
+          .map(key => caches.delete(key))
+      ))
       .then(() => self.clients.claim())
   );
 });
 
+// Gestion des fichiers hors connexion
 self.addEventListener('fetch', (event) => {
   const request = event.request;
+
   if (request.method !== 'GET') return;
+
   const url = new URL(request.url);
 
+  // Pages de navigation
   if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).catch(() => caches.match('./index.html')));
-    return;
-  }
-
-  if (url.origin === self.location.origin) {
     event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-        const copy = response.clone();
-        caches.open(RUNTIME).then((cache) => cache.put(request, copy));
-        return response;
-      }))
+      fetch(request).catch(() => caches.match('./index.html'))
     );
     return;
   }
 
+  // Fichiers de l'application
+  if (url.origin === self.location.origin) {
+    event.respondWith(
+      caches.match(request).then(cached => {
+        if (cached) return cached;
+
+        return fetch(request).then(response => {
+          if (response.ok) {
+            const copy = response.clone();
+
+            caches.open(RUNTIME).then(cache => {
+              cache.put(request, copy);
+            });
+          }
+
+          return response;
+        });
+      })
+    );
+
+    return;
+  }
+
+  // Couvertures des livres
   if (request.destination === 'image') {
     event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-        const copy = response.clone();
-        caches.open(RUNTIME).then((cache) => cache.put(request, copy));
-        return response;
-      }).catch(() => new Response('', { status: 503 })))
+      caches.match(request).then(cached => {
+        if (cached) return cached;
+
+        return fetch(request)
+          .then(response => {
+            const copy = response.clone();
+
+            caches.open(RUNTIME).then(cache => {
+              cache.put(request, copy);
+            });
+
+            return response;
+          })
+          .catch(() => new Response('', {
+            status: 503
+          }));
+      })
     );
   }
 });
