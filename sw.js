@@ -1,5 +1,5 @@
 
-const VERSION = 'ma-bibliotheque-v1.0.2-b9';
+const VERSION = 'ma-bibliotheque-v1.0.3-b10';
 const RUNTIME = VERSION + '-runtime';
 
 const APP_SHELL = [
@@ -27,11 +27,9 @@ self.addEventListener('install', event => {
       const response = await fetch(file, {
         cache: 'reload'
       });
-
       if (!response.ok) {
         throw new Error('Fichier absent : ' + file);
       }
-
       await cache.put(file, response);
     }
 
@@ -63,7 +61,6 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(req.url);
 
-  // Les API externes gèrent leurs propres erreurs.
   if (url.origin !== self.location.origin) {
     if (req.destination === 'image') {
       event.respondWith((async () => {
@@ -76,23 +73,19 @@ self.addEventListener('fetch', event => {
           const cache = await caches.open(RUNTIME);
           await cache.put(req, response.clone());
         }
-
         return response;
       })());
     }
     return;
   }
 
-  // Navigation et scripts : priorité à la version récente.
   event.respondWith((async () => {
     try {
       const response = await fetch(req);
-
       if (response.ok) {
         const cache = await caches.open(RUNTIME);
         await cache.put(req, response.clone());
       }
-
       return response;
     } catch {
       return (
