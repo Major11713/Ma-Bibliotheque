@@ -31,3 +31,31 @@ test('n’accepte jamais le premier résultat Google si son ISBN est différent'
     globalThis.localStorage = originalLocalStorage;
   }
 });
+
+test('complète une notice publique connue mais incomplète', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLocalStorage = globalThis.localStorage;
+  const memory = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => memory.get(key) || null,
+    setItem: (key, value) => memory.set(key, String(value)),
+    removeItem: (key) => memory.delete(key),
+  };
+  globalThis.fetch = async () => new Response('{}', {
+    status: 404,
+    headers: { 'content-type': 'application/json' }
+  });
+
+  try {
+    const result = await lookupBook('9782755640427');
+    assert.equal(result.title, 'Glitter Girl — Black Riders, tome 1');
+    assert.deepEqual(result.authors, ['C. J. Ronnie']);
+    assert.equal(result.pageCount, 588);
+    assert.ok(result.description.includes('Hayley quitte New York'));
+    assert.ok(result.cover.startsWith('https://'));
+    assert.ok(result.source.includes('Catalogue local vérifié'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.localStorage = originalLocalStorage;
+  }
+});

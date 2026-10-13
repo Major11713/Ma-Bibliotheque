@@ -1,6 +1,7 @@
 import { translateDescriptionToFrench, inferCategories } from './enrichment.js';
+import { lookupLocalCatalog } from './catalog-local.js';
 const TIMEOUT_MS = 11000;
-const CACHE_PREFIX = 'mb-livres-v5-';
+const CACHE_PREFIX = 'mb-livres-v6-';
 const GOOGLE_PAUSE_MS = 30 * 60 * 1000;
 
 let googleBlockedUntil = 0;
@@ -36,6 +37,17 @@ function plainText(value) {
   if (value && typeof value === 'object') {
     value = value.value || '';
   }
+
+  if (typeof DOMParser === 'undefined') {
+    return String(value || '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/\s+/g, ' ').trim();
+  }
+
   const doc = new DOMParser().parseFromString(
     String(value || ''), 'text/html'
   );
@@ -1031,7 +1043,9 @@ export async function lookupBook(isbn, googleApiKey = '') {
     return { ...cached, warnings: [] };
   }
 
-  let result = null;
+  // Commencer par les notices vérifiées manuellement. Les catalogues
+  // publics restent consultés ensuite afin de compléter la fiche.
+  let result = lookupLocalCatalog(code);
   const warnings = [];
 
   async function searchGroup(sources) {

@@ -1,17 +1,18 @@
-const VERSION = 'ma-bibliotheque-v1.1.0';
+const VERSION = 'ma-bibliotheque-v1.1.1';
 const RUNTIME = `${VERSION}-runtime`;
 
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css?v=1.1.0',
-  './app.js?v=1.1.0',
+  './styles.css?v=1.1.1',
+  './app.js?v=1.1.1',
   './db.js',
   './api.js',
   './enrichment.js',
+  './catalog-local.js',
   './scanner.js',
   './manifest.webmanifest',
-  './vendor/zxing-browser.min.js?v=1.1.0',
+  './vendor/zxing-browser.min.js?v=1.1.1',
   './icons/favicon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
