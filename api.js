@@ -1,6 +1,4 @@
-
-import { translateDescriptionToFrench } from './enrichment.js';
-
+import { translateDescriptionToFrench, inferCategories } from './enrichment.js';
 const TIMEOUT_MS = 11000;
 const CACHE_PREFIX = 'mb-livres-v5-';
 const GOOGLE_PAUSE_MS = 30 * 60 * 1000;
@@ -75,7 +73,7 @@ function cleanDescription(value) {
 
   // Ne pas considérer les informations techniques
   // d'une bibliothèque comme un résumé.
-  if (/^(code à barres commercial|ean\b|isbn\b|identifiant commercial|numéro commercial)/i.test(text)) {
+  if (/^(collection\s*:|bibliographie\s*:|code à barres commercial|ean\b|isbn\b|identifiant commercial|numéro commercial)/i.test(text)) {
     return '';
   }
 
@@ -1150,13 +1148,28 @@ export async function lookupBook(isbn, googleApiKey = '') {
       );
     }
 
-    // Traduire uniquement un résumé fiable dont la langue
-    // source est connue. En cas de quota ou d'erreur réseau,
+    // Détecter la langue du résumé lorsqu'un catalogue
+    // ne fournit pas un code de langue assez précis.
+    const summary = result.description || '';
+    const englishCount = (summary.match(
+      /\b(the|and|she|he|her|his|with|from|when|that|their|but|will)\b/gi
+    ) || []).length;
+    const frenchCount = (summary.match(
+      /\b(le|la|les|des|une|dans|avec|pour|elle|mais|qui|sur)\b/gi
+    ) || []).length;
+
+    const summaryLanguage =
+      englishCount >= 3 && englishCount > frenchCount ? 'en' :
+      frenchCount >= 3 && frenchCount > englishCount ? 'fr' :
+      result.language || '';
+
+    // Traduire avec MyMemory. En cas de quota ou d'erreur,
     // le texte original est conservé sans bloquer la fiche.
     const translation = await translateDescriptionToFrench(
       result.description,
-      result.language
+      summaryLanguage
     );
+
     result.description = translation.text;
     result.descriptionTranslated = translation.translated;
 
@@ -1166,6 +1179,16 @@ export async function lookupBook(isbn, googleApiKey = '') {
     ) {
       result.source += ' + MyMemory';
     }
+
+    // Compléter automatiquement les catégories
+    result.categories = [...new Set([
+      ...(result.categories || []),
+      ...inferCategories(
+        result.categories || [],
+        result.title || '',
+        result.description || ''
+      )
+    ])].slice(0, 6);
 
     // 7. Couverture de l'édition scannée,
     // sans utiliser celle d'une édition étrangère.
