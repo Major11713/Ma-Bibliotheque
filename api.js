@@ -1151,6 +1151,49 @@ export async function lookupBook(isbn, googleApiKey = '') {
       );
     } catch {}
 
+    
+    // Ignorer les fausses descriptions bibliographiques
+    if (/^(collection\s*:|code à barres commercial|ean\s*:|isbn\s*:|bibliographie\s*:)/i.test(result.description || '')) {
+      result.description = '';
+    }
+
+    // Détecter si le résumé est anglais ou français
+    const summary = result.description || '';
+    const englishCount = (summary.match(
+      /\b(the|and|she|he|her|his|with|from|when|that|their|but|will)\b/gi
+    ) || []).length;
+    const frenchCount = (summary.match(
+      /\b(le|la|les|des|une|dans|avec|pour|elle|mais|qui|sur)\b/gi
+    ) || []).length;
+
+    const summaryLanguage =
+      englishCount >= 3 && englishCount > frenchCount ? 'en' :
+      frenchCount >= 3 && frenchCount > englishCount ? 'fr' :
+      result.language || '';
+
+    // Traduire le résumé avec MyMemory
+    const translation = await translateDescriptionToFrench(
+      result.description,
+      summaryLanguage
+    );
+
+    result.description = translation.text;
+    result.descriptionTranslated = translation.translated;
+
+    if (translation.translated) {
+      result.source += ' + MyMemory';
+    }
+
+    // Compléter automatiquement les catégories
+    result.categories = [...new Set([
+      ...(result.categories || []),
+      ...inferCategories(
+        result.categories || [],
+        result.title || '',
+        result.description || ''
+      )
+    ])].slice(0, 6);
+
     result.isbn = code;
     result.warnings = warnings;
 
