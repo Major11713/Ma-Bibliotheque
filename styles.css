@@ -212,9 +212,12 @@ dialog::backdrop { background: rgba(10,26,41,.64); backdrop-filter: blur(4px); }
 .detail-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
 .detail-meta span { padding: 7px 9px; background: var(--paper-deep); border-radius: 7px; font-size: 11px; font-weight: 750; }
 .detail-body h3 { margin: 0 0 8px; font-family: Georgia, serif; font-size: 20px; }
+.translation-note { display: inline-block; margin: 0 0 10px; padding: 5px 8px; color: var(--ink-2); background: #e9efe9; border-radius: 6px; font-size: 10px; font-weight: 750; }
 .detail-description { margin: 0; color: var(--ink-2); line-height: 1.65; white-space: pre-wrap; }
 .detail-isbn { margin: 20px 0 0; color: var(--muted); font-size: 11px; }
 .detail-actions { position: sticky; bottom: calc(-28px - var(--safe-bottom)); display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px -18px calc(-28px - var(--safe-bottom)); padding: 14px 18px calc(18px + var(--safe-bottom)); background: rgba(246,241,232,.97); border-top: 1px solid var(--line); }
+.refresh-button { grid-column: 1 / -1; }
+.button:disabled { opacity: .6; cursor: wait; }
 
 .settings-sheet { padding-bottom: calc(32px + var(--safe-bottom)); }
 .settings-group { margin: 0 0 24px; }

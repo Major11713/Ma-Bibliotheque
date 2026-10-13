@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#17324d" />
     <meta name="description" content="Ma Bibliothèque — votre collection de livres, privée et disponible hors ligne." />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Bibliothèque" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <link rel="icon" href="./icons/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=1.0.0-b7" />
+    <link rel="stylesheet" href="./styles.css?v=1.1.0" />
     <title>Ma Bibliothèque</title>
   </head>
   <body>
@@ -149,7 +150,7 @@
           <button class="text-button" type="submit">Sauvegarder</button>
         </header>
         <div class="loading-card" id="metadataLoading" hidden>
-          <span class="spinner" aria-hidden="true"></span><div><strong>Recherche du livre…</strong><small>Open Library, puis Google Books si nécessaire</small></div>
+          <span class="spinner" aria-hidden="true"></span><div><strong>Recherche du livre…</strong><small>Open Library, Google Books, Inventaire et traduction française</small></div>
         </div>
         <div class="form-layout">
           <div class="cover-editor">
@@ -190,6 +191,7 @@
         </header>
         <div id="bookDetailContent"></div>
         <div class="detail-actions">
+          <button class="button secondary refresh-button" id="refreshBookButton" type="button">↻ Actualiser les informations</button>
           <button class="button secondary" id="toggleBookStatus" type="button"></button>
           <button class="button primary" id="editBookButton" type="button">Modifier</button>
         </div>
@@ -214,22 +216,26 @@
         </div>
         <div class="settings-group">
           <h3>Google Books (facultatif)</h3>
-          <p>Open Library est interrogé en premier. Une clé Google Books gratuite peut améliorer le catalogue de secours, mais elle reste visible dans votre navigateur.</p>
+          <p>Open Library, Google Books et Inventaire sont comparés par ISBN exact. Une clé Google Books gratuite peut améliorer la disponibilité, mais elle reste visible dans votre navigateur.</p>
           <label class="api-key-field">Clé API personnelle<input id="googleApiKey" type="password" autocomplete="off" placeholder="Laisser vide si inutile" /></label>
           <button class="button secondary full" id="saveApiKeyButton" type="button">Enregistrer la clé sur cet appareil</button>
+        </div>
+        <div class="settings-group info-panel">
+          <h3>Résumés en français</h3>
+          <p>Lorsqu’un résumé fiable n’existe que dans une autre langue, MyMemory tente de le traduire. Vous pouvez toujours le corriger avant la sauvegarde.</p>
         </div>
         <div class="settings-group info-panel">
           <h3>Installation iPhone</h3>
           <ol><li>Ouvrez le site dans Safari.</li><li>Touchez <strong>Partager</strong>.</li><li>Choisissez <strong>Sur l’écran d’accueil</strong>, puis <strong>Ajouter</strong>.</li></ol>
         </div>
         <div class="storage-status" id="storageStatus"></div>
-        <p class="version-line">Ma Bibliothèque · version 1.0.0 · sans compte, sans publicité</p>
+        <p class="version-line">Ma Bibliothèque · version 1.1.0 · sans compte, sans publicité</p>
       </section>
     </dialog>
 
     <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
 
-    <script src="./vendor/zxing-browser.min.js?v=1.0.0-b7"></script>
-    <script type="module" src="./app.js?v=1.0.0-b7"></script>
+    <script src="./vendor/zxing-browser.min.js?v=1.1.0"></script>
+    <script type="module" src="./app.js?v=1.1.0"></script>
   </body>
 </html>

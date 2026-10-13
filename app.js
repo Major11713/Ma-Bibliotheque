@@ -13,6 +13,7 @@ const state = {
   lookupToken: 0,
   audio: null,
   formDataSource: 'Saisie manuelle',
+  formDescriptionTranslated: false,
 };
 
 const el = Object.fromEntries([
@@ -23,7 +24,7 @@ const el = Object.fromEntries([
   'formEyebrow', 'formTitle', 'metadataLoading', 'editingOriginalIsbn', 'formIsbn', 'formBookTitle',
   'formAuthors', 'formCategories', 'formDescription', 'formPublishedDate', 'formPageCount', 'formCover',
   'formCoverPreview', 'formCoverFallback', 'formSource', 'bookDetailDialog', 'bookDetailContent',
-  'deleteBookButton', 'toggleBookStatus', 'editBookButton', 'settingsButton', 'settingsDialog',
+  'deleteBookButton', 'toggleBookStatus', 'editBookButton', 'refreshBookButton', 'settingsButton', 'settingsDialog',
   'exportButton', 'importButton', 'importFile', 'googleApiKey', 'saveApiKeyButton', 'storageStatus',
   'toastRegion', 'networkBanner', 'manualAddButton', 'welcomeDate'
 ].map((id) => [id, document.getElementById(id)]));
@@ -296,6 +297,7 @@ function showScanResult(positive, title, message, actions, isbn) {
 
 function clearBookForm() {
   state.formDataSource = 'Saisie manuelle';
+  state.formDescriptionTranslated = false;
   el.bookForm.reset();
   el.editingOriginalIsbn.value = '';
   el.formIsbn.value = '';
@@ -315,6 +317,7 @@ function clearBookForm() {
 
 function fillBookForm(book, { preserveIsbn = false } = {}) {
   state.formDataSource = book.source || 'Saisie manuelle';
+  state.formDescriptionTranslated = Boolean(book.descriptionTranslated);
   if (!preserveIsbn) el.formIsbn.value = book.isbn?.startsWith('manuel-') ? '' : (book.isbn || '');
   el.formBookTitle.value = book.title || '';
   el.formAuthors.value = (book.authors || []).join(', ');
@@ -325,7 +328,8 @@ function fillBookForm(book, { preserveIsbn = false } = {}) {
   el.formCover.value = book.cover || '';
   const statusInput = el.bookForm.querySelector(`input[name="status"][value="${book.status || 'owned'}"]`);
   if (statusInput) statusInput.checked = true;
-  el.formSource.textContent = book.source ? `Informations proposées par ${book.source}. Vérifiez-les avant de sauvegarder.` : '';
+  const translationNote = book.descriptionTranslated ? ' Le résumé a été traduit automatiquement en français.' : '';
+  el.formSource.textContent = book.source ? `Informations proposées par ${book.source}.${translationNote} Vérifiez-les avant de sauvegarder.` : '';
   updateFormCover();
 }
 
@@ -409,7 +413,8 @@ async function submitBookForm(event) {
     pageCount: el.formPageCount.value.trim(),
     cover: el.formCover.value.trim(),
     status: new FormData(el.bookForm).get('status') || 'owned',
-    source: existing?.source || state.formDataSource || (canonicalIsbn ? 'Saisie vérifiée manuellement' : 'Saisie manuelle'),
+    source: state.formDataSource || existing?.source || (canonicalIsbn ? 'Saisie vérifiée manuellement' : 'Saisie manuelle'),
+    descriptionTranslated: state.formDescriptionTranslated,
     addedAt: existing?.addedAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -440,6 +445,7 @@ function openBookDetail(isbn) {
     <div class="detail-body">
       <div class="detail-meta">${meta.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}</div>
       <h3>À propos</h3>
+      ${book.descriptionTranslated ? '<p class="translation-note">Résumé traduit automatiquement en français</p>' : ''}
       <p class="detail-description">${escapeHtml(book.description || 'Aucun résumé disponible. Vous pouvez en ajouter en modifiant le livre.')}</p>
       <p class="detail-isbn">${book.isbn.startsWith('manuel-') ? 'Ajout manuel sans ISBN' : `ISBN ${escapeHtml(book.isbn)}`}</p>
     </div>`;
@@ -457,6 +463,54 @@ async function editSelectedBook() {
   el.editingOriginalIsbn.value = book.isbn;
   fillBookForm(book);
   showDialog(el.bookFormDialog);
+}
+
+async function refreshSelectedBook() {
+  const book = state.books.find((item) => item.isbn === state.selectedIsbn);
+  if (!book) return;
+  if (book.isbn.startsWith('manuel-')) {
+    toast('Ajoutez d’abord un ISBN valide pour actualiser ce livre.', true);
+    return;
+  }
+  if (!navigator.onLine) {
+    toast('Connectez-vous à Internet pour actualiser les informations.', true);
+    return;
+  }
+
+  const originalLabel = el.refreshBookButton.textContent;
+  el.refreshBookButton.disabled = true;
+  el.refreshBookButton.textContent = 'Recherche en cours…';
+  try {
+    const apiKey = await getSetting('googleApiKey');
+    const fresh = await lookupBook(book.isbn, apiKey);
+    if (!fresh.title && !fresh.description && !fresh.cover) {
+      toast('Aucune nouvelle information fiable n’a été trouvée.', true);
+      return;
+    }
+    const proposal = {
+      ...book,
+      ...Object.fromEntries(['title', 'description', 'cover', 'publishedDate', 'pageCount', 'publisher', 'language']
+        .map((key) => [key, fresh[key] || book[key] || ''])),
+      authors: fresh.authors?.length ? fresh.authors : (book.authors || []),
+      categories: [...new Set([...(fresh.categories || []), ...(book.categories || [])])],
+      source: fresh.source || book.source,
+      descriptionTranslated: fresh.description ? Boolean(fresh.descriptionTranslated) : Boolean(book.descriptionTranslated),
+      status: book.status,
+    };
+    closeDialog(el.bookDetailDialog);
+    clearBookForm();
+    el.formEyebrow.textContent = 'Actualisation';
+    el.formTitle.textContent = 'Vérifier les nouvelles informations';
+    el.editingOriginalIsbn.value = book.isbn;
+    fillBookForm(proposal);
+    showDialog(el.bookFormDialog);
+    toast('Les nouvelles informations sont prêtes à être vérifiées.');
+  } catch {
+    toast('Les catalogues sont indisponibles pour le moment. Réessayez plus tard.', true);
+  } finally {
+    el.refreshBookButton.disabled = false;
+    el.refreshBookButton.textContent = originalLabel;
+  }
 }
 
 async function toggleSelectedStatus() {
@@ -517,6 +571,7 @@ async function handleImport(file) {
         cover: String(book.cover || ''),
         status: book.status === 'wishlist' ? 'wishlist' : 'owned',
         source: String(book.source || 'Import JSON'),
+        descriptionTranslated: Boolean(book.descriptionTranslated),
         addedAt: book.addedAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -609,6 +664,7 @@ function bindEvents() {
     if (card) openBookDetail(card.dataset.bookIsbn);
   }));
   el.editBookButton.addEventListener('click', editSelectedBook);
+  el.refreshBookButton.addEventListener('click', refreshSelectedBook);
   el.toggleBookStatus.addEventListener('click', toggleSelectedStatus);
   el.deleteBookButton.addEventListener('click', deleteSelectedBook);
   el.settingsButton.addEventListener('click', openSettings);

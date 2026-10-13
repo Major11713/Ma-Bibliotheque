@@ -1,6 +1,8 @@
 
+import { translateDescriptionToFrench } from './enrichment.js';
+
 const TIMEOUT_MS = 11000;
-const CACHE_PREFIX = 'mb-livres-v4-';
+const CACHE_PREFIX = 'mb-livres-v5-';
 const GOOGLE_PAUSE_MS = 30 * 60 * 1000;
 
 let googleBlockedUntil = 0;
@@ -78,6 +80,11 @@ function cleanDescription(value) {
   }
 
   if (/^\d{10,13}$/.test(text)) return '';
+
+  if (
+    /no description available|description not available/i.test(text) ||
+    /this book was (?:digitized|scanned)|digitized by google|search inside this book/i.test(text)
+  ) return '';
 
   return text;
 }
@@ -1141,6 +1148,23 @@ export async function lookupBook(isbn, googleApiKey = '') {
       result.categories = categoriesFromDescription(
         result.description
       );
+    }
+
+    // Traduire uniquement un résumé fiable dont la langue
+    // source est connue. En cas de quota ou d'erreur réseau,
+    // le texte original est conservé sans bloquer la fiche.
+    const translation = await translateDescriptionToFrench(
+      result.description,
+      result.language
+    );
+    result.description = translation.text;
+    result.descriptionTranslated = translation.translated;
+
+    if (
+      translation.translated &&
+      !result.source.includes('MyMemory')
+    ) {
+      result.source += ' + MyMemory';
     }
 
     // 7. Couverture de l'édition scannée,

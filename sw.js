@@ -1,17 +1,17 @@
-
-const VERSION = 'ma-bibliotheque-v1.0.3-b10';
-const RUNTIME = VERSION + '-runtime';
+const VERSION = 'ma-bibliotheque-v1.1.0';
+const RUNTIME = `${VERSION}-runtime`;
 
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css?v=1.0.0-b7',
-  './app.js?v=1.0.0-b7',
+  './styles.css?v=1.1.0',
+  './app.js?v=1.1.0',
   './db.js',
   './api.js',
+  './enrichment.js',
   './scanner.js',
   './manifest.webmanifest',
-  './vendor/zxing-browser.min.js?v=1.0.0-b7',
+  './vendor/zxing-browser.min.js?v=1.1.0',
   './icons/favicon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -19,61 +19,48 @@ const APP_SHELL = [
   './icons/apple-touch-icon.png'
 ];
 
-self.addEventListener('install', event => {
+self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(VERSION);
-
     for (const file of APP_SHELL) {
-      const response = await fetch(file, {
-        cache: 'reload'
-      });
-      if (!response.ok) {
-        throw new Error('Fichier absent : ' + file);
-      }
+      const response = await fetch(file, { cache: 'reload' });
+      if (!response.ok) throw new Error(`Fichier absent : ${file}`);
       await cache.put(file, response);
     }
-
     await self.skipWaiting();
   })());
 });
 
-self.addEventListener('activate', event => {
+self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-
     await Promise.all(keys
-      .filter(key =>
-        key.startsWith('ma-bibliotheque-') &&
-        key !== VERSION &&
-        key !== RUNTIME
-      )
-      .map(key => caches.delete(key))
-    );
-
+      .filter((key) => key.startsWith('ma-bibliotheque-') && key !== VERSION && key !== RUNTIME)
+      .map((key) => caches.delete(key)));
     await self.clients.claim();
   })());
 });
 
-self.addEventListener('fetch', event => {
-  const req = event.request;
-
-  if (req.method !== 'GET') return;
-
-  const url = new URL(req.url);
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
 
   if (url.origin !== self.location.origin) {
-    if (req.destination === 'image') {
+    if (request.destination === 'image') {
       event.respondWith((async () => {
-        const cached = await caches.match(req);
+        const cached = await caches.match(request);
         if (cached) return cached;
-
-        const response = await fetch(req);
-
-        if (response.ok) {
-          const cache = await caches.open(RUNTIME);
-          await cache.put(req, response.clone());
+        try {
+          const response = await fetch(request);
+          if (response.ok) {
+            const cache = await caches.open(RUNTIME);
+            await cache.put(request, response.clone());
+          }
+          return response;
+        } catch {
+          return new Response('', { status: 503 });
         }
-        return response;
       })());
     }
     return;
@@ -81,19 +68,15 @@ self.addEventListener('fetch', event => {
 
   event.respondWith((async () => {
     try {
-      const response = await fetch(req);
+      const response = await fetch(request);
       if (response.ok) {
         const cache = await caches.open(RUNTIME);
-        await cache.put(req, response.clone());
+        await cache.put(request, response.clone());
       }
       return response;
     } catch {
-      return (
-        await caches.match(req) ||
-        (req.mode === 'navigate'
-          ? await caches.match('./index.html')
-          : Response.error())
-      );
+      return await caches.match(request) ||
+        (request.mode === 'navigate' ? await caches.match('./index.html') : Response.error());
     }
   })());
 });

@@ -6,8 +6,11 @@ Une PWA mobile en français pour enregistrer et vérifier une collection personn
 
 - Deux modes de scan ISBN par caméra : **Vérifier** et **Enregistrer**.
 - Retour sonore grave si le livre est déjà possédé, deux notes montantes sinon.
-- Recherche des métadonnées dans **Open Library**, puis complément par **Google Books** si nécessaire.
+- Comparaison de l’ISBN exact dans **Open Library**, **Google Books** et **Inventaire** pour éviter d’associer le mauvais livre.
+- Traduction automatique en français du résumé avec **MyMemory** lorsqu’une version française n’est pas disponible.
+- Catégories enrichies (romance, dark romance, fantasy, thriller, manga, etc.) à partir des sujets, du titre et du résumé.
 - Confirmation et modification du titre, des auteurs, catégories, résumé, couverture, date et pagination avant sauvegarde.
+- Actualisation d’une fiche existante avec prévisualisation avant remplacement des informations.
 - Bibliothèque locale disponible hors ligne, recherche, filtres par catégorie et prévention des ISBN en double.
 - Liste d’envies avec passage en un geste vers la bibliothèque.
 - Ajout manuel, modification, suppression, export et import JSON.
@@ -38,6 +41,8 @@ Ne double-cliquez pas sur `index.html` : la caméra et le service worker exigent
 5. **Hors ligne** : après une première visite, coupez le réseau et rechargez ; la bibliothèque, les recherches et les couvertures déjà mises en cache doivent rester accessibles. La récupération d’un nouveau résumé nécessite Internet.
 6. **Sauvegarde** : exportez le JSON, supprimez un livre, puis réimportez le fichier. L’import fusionne les livres par ISBN.
 7. **Liste d’envies** : ajoutez un livre dans les envies puis utilisez « Je possède ce livre ».
+8. **Actualisation** : ouvrez une fiche, touchez « Actualiser les informations », vérifiez la proposition puis sauvegardez.
+9. **ISBN inconnu** : saisissez un ISBN valide mais absent des catalogues ; l’app doit laisser les champs vides plutôt que proposer un autre livre.
 
 Un ISBN connu pour un essai manuel : `9782070360024`.
 
@@ -56,7 +61,7 @@ Le fichier `.github/workflows/deploy-pages.yml` fourni réalise le déploiement.
 
 ### Mise à jour
 
-Remplacez les fichiers, augmentez le nom de cache dans `sw.js` (par exemple `v1.0.1`) ainsi que le suffixe `?v=` des ressources dans `index.html` et `sw.js`, puis envoyez le nouveau commit. Ouvrez une fois l’app avec Internet pour récupérer la mise à jour.
+Remplacez les fichiers, augmentez le nom de cache dans `sw.js` (par exemple `v1.1.1`) ainsi que le suffixe `?v=` des ressources dans `index.html` et `sw.js`, puis envoyez le nouveau commit. Ouvrez une fois l’app avec Internet pour récupérer la mise à jour.
 
 ## Installer sur iPhone
 
@@ -75,7 +80,8 @@ Après l’installation, ouvrez les réglages de l’app et réalisez un premier
 - **Audio** : iOS autorise le son web après une action de l’utilisateur. Le bouton Scanner initialise l’audio ; en mode silencieux, avec un volume nul ou selon les réglages Safari, le retour visuel reste la référence.
 - **Persistance** : `IndexedDB` est local à l’installation et au domaine. Supprimer l’app web, effacer les données Safari, manquer fortement d’espace ou changer d’adresse GitHub Pages peut supprimer ou isoler la collection. Faites des exports JSON réguliers. L’app demande le stockage persistant quand iOS le permet, sans pouvoir le garantir.
 - **Hors ligne** : la collection et l’interface fonctionnent hors ligne après une première ouverture réussie. La lecture du code-barres se fait sur l’appareil. La recherche d’un nouveau titre, d’un résumé ou d’une couverture dans les catalogues nécessite Internet.
-- **Catalogues** : tous les ISBN ne sont pas présents et les catégories peuvent être imprécises. L’écran de confirmation permet toujours de corriger ou saisir les informations. Open Library est prioritaire. Google Books sert de secours ; une clé API gratuite personnelle peut être saisie dans les réglages si les requêtes sans clé sont limitées. Une clé utilisée dans une application web n’est jamais secrète.
+- **Catalogues** : tous les ISBN ne sont pas présents et les catégories peuvent être imprécises. L’app n’accepte que les résultats dont l’ISBN correspond exactement, compare Open Library, Google Books et Inventaire, puis vous laisse tout vérifier. Une clé Google Books gratuite personnelle peut être saisie si les requêtes sans clé sont limitées ; dans une application web, cette clé n’est jamais secrète.
+- **Traduction** : MyMemory est utilisé uniquement lorsqu’un résumé fiable est disponible dans une langue reconnue autre que le français. Un quota, une erreur réseau ou un texte trop long peut laisser le résumé dans sa langue d’origine ; la correction manuelle reste possible.
 - **Couvertures** : les images viennent des catalogues et ne sont pas intégrées à l’export JSON. Celles déjà affichées peuvent être conservées par le cache, mais iOS reste libre de purger ce cache.
 - **Pas de synchronisation** : il n’y a volontairement ni compte, ni cloud, ni synchronisation entre plusieurs appareils. Pour migrer, exportez sur l’ancien appareil et importez sur le nouveau.
 - **Codes reconnus** : le scanner vise les ISBN-13 `978…`/`979…` et accepte aussi un ISBN-10 saisi manuellement. Un code de prix ou un code produit non ISBN est ignoré.
@@ -88,7 +94,8 @@ Après l’installation, ouvrez les réglages de l’app et réalisez un premier
 ├── styles.css                Design mobile et responsive
 ├── app.js                    Navigation et logique de l’application
 ├── db.js                     Stockage IndexedDB
-├── api.js                    Open Library et Google Books
+├── api.js                    Open Library, Google Books et Inventaire
+├── enrichment.js             Nettoyage, catégories et traduction française
 ├── scanner.js                Caméra, BarcodeDetector et secours ZXing
 ├── sw.js                     Cache hors ligne
 ├── manifest.webmanifest      Installation PWA
@@ -114,6 +121,8 @@ Le lecteur utilise d’abord l’API native `BarcodeDetector` lorsqu’elle pren
 
 - [Open Library Book APIs](https://openlibrary.org/dev/docs/api/books) et [Covers API](https://openlibrary.org/dev/docs/api/covers)
 - [Google Books API](https://developers.google.com/books/docs/v1/using)
+- [Inventaire API](https://api.inventaire.io/)
+- [MyMemory Translation API](https://mymemory.translated.net/doc/spec.php)
 - [Documentation WebKit sur les apps d’écran d’accueil](https://webkit.org/blog/17333/webkit-features-in-safari-26-0/) et [la politique de stockage](https://webkit.org/blog/14403/updates-to-storage-policy/)
 
 Projet personnel sans compte ni publicité. Les données bibliographiques restent soumises aux conditions des catalogues interrogés.

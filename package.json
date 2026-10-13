@@ -1,12 +1,13 @@
 {
   "name": "ma-bibliotheque-pwa",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
+  "type": "module",
   "description": "PWA personnelle et hors ligne pour gérer une collection de livres.",
   "scripts": {
     "vendor": "node scripts/copy-vendor.mjs",
     "serve": "npx --yes serve . -l 4173",
-    "check": "node --check app.js && node --check db.js && node --check api.js && node --check scanner.js && node --check sw.js"
+    "check": "node --check app.js && node --check db.js && node --check api.js && node --check enrichment.js && node --check scanner.js && node --check sw.js && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@zxing/browser": "0.2.1",
