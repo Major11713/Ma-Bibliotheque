@@ -1,4 +1,4 @@
-
+import { translateDescriptionToFrench, inferCategories } from './enrichment.js';
 const TIMEOUT_MS = 11000;
 const CACHE_PREFIX = 'mb-livres-v4-';
 const GOOGLE_PAUSE_MS = 30 * 60 * 1000;
