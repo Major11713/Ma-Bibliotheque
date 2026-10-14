@@ -378,7 +378,10 @@ async function beginAddByIsbn(isbn, status = 'owned') {
     if (token !== state.lookupToken || !el.bookFormDialog.open) return;
     fillBookForm({ ...book, status }, { preserveIsbn: true });
     if (!book.title) toast('Livre introuvable : complétez les informations à la main.', true);
-    else if (book.warnings?.length) toast('Certaines informations ont été complétées avec les données disponibles.');
+    else {
+      const missing = [!book.description && 'résumé', !book.categories?.length && 'catégories', !book.cover && 'couverture'].filter(Boolean);
+      if (missing.length) toast(`Informations absentes des catalogues consultés : ${missing.join(', ')}.`, true);
+    }
   } catch {
     toast('Catalogue indisponible. Vous pouvez tout de même saisir le livre à la main.', true);
   } finally {
@@ -482,7 +485,7 @@ async function refreshSelectedBook() {
   el.refreshBookButton.textContent = 'Recherche en cours…';
   try {
     const apiKey = await getSetting('googleApiKey');
-    const fresh = await lookupBook(book.isbn, apiKey);
+    const fresh = await lookupBook(book.isbn, apiKey, { refresh: true });
     if (!fresh.title && !fresh.description && !fresh.cover) {
       toast('Aucune nouvelle information fiable n’a été trouvée.', true);
       return;

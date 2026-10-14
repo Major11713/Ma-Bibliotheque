@@ -1,0 +1,26 @@
+<!doctype html><html lang="fr"><meta charset="utf-8"><title>Contrôle des catalogues</title>
+<style>body{font:16px system-ui;padding:24px}td,th{padding:12px;border:1px solid #ccc}table{border-collapse:collapse}</style>
+<h1>Tests réels du moteur bibliographique</h1><button id="run">Tester les six ISBN</button><p id="status">Prêt</p>
+<table><thead><tr><th>ISBN</th><th>Titre</th><th>Auteurs</th><th>Résumé (caractères)</th><th>Genres</th><th>Couverture</th><th>Résultat</th></tr></thead><tbody id="results"></tbody></table>
+<script type="module">
+import {lookupBook} from '../api.js';
+const corpus = ['9782387032379','9782266336994','9782755640427','9782070584628','9782266320481','9780140328721'];
+document.querySelector('#run').onclick = async () => {
+  document.querySelector('#run').disabled = true;
+  document.querySelector('#status').textContent = 'Recherches en cours';
+  await Promise.all(corpus.map(async isbn => {
+    const row = document.createElement('tr');
+    document.querySelector('#results').append(row);
+    row.textContent = isbn + ' — recherche…';
+    try {
+      const book = await lookupBook(isbn, '', {refresh:true});
+      row.textContent = '';
+      const valid = book.title && book.authors.length && book.description && book.categories.length && book.cover;
+      for (const value of [isbn, book.title, book.authors.join(', '), book.description.length, book.categories.join(', '), book.cover ? 'Oui' : 'Non', valid ? 'Complet' : 'À examiner']) {
+        const cell=document.createElement('td');cell.textContent=String(value);row.append(cell);
+      }
+    } catch(error) {row.textContent = isbn + ' — ' + error.message;}
+  }));
+  document.querySelector('#status').textContent = 'Terminé';
+};
+</script></html>

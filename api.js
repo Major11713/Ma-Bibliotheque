@@ -1,7 +1,8 @@
 import { translateDescriptionToFrench, inferCategories } from './enrichment.js';
 import { lookupLocalCatalog } from './catalog-local.js';
+import { parseBnfRecord } from './bnf.js';
 const TIMEOUT_MS = 11000;
-const CACHE_PREFIX = 'mb-livres-v6-';
+const CACHE_PREFIX = 'mb-livres-v7-';
 const GOOGLE_PAUSE_MS = 30 * 60 * 1000;
 
 let googleBlockedUntil = 0;
@@ -149,7 +150,7 @@ async function request(url, format = 'json') {
         'application/xml'
       );
 
-      if (xml.querySelector('parsererror')) {
+      if (xml.getElementsByTagName('parsererror').length) {
         throw new Error('Réponse XML invalide');
       }
 
@@ -209,7 +210,10 @@ function titleCore(value) {
   );
 }
 
-function sameTitle(a, b) {
+export function sameTitle(a, b) {
+  const volume = value => normalized(value).match(/\b(?:tome|vol(?:ume)?|book|saison|part(?:ie)?)\s*0*(\d+)\b/)?.[1] || '';
+  // Deux tomes différents ne partagent pas forcément leur résumé.
+  if (volume(a) !== volume(b) && (volume(a) || volume(b))) return false;
   const x = titleCore(a);
   const y = titleCore(b);
 
@@ -244,13 +248,13 @@ function matchesBook(title, authors, candidate) {
 
 export function normaliseCategories(subjects) {
   const rules = [
-    ['Dark romance', /dark romance|romantic suspense/i],
+    ['Dark romance', /dark romance|romance sombre/i],
     ['Romance', /romance|romantic fiction|love stories|amour|sentimental|new adult/i],
-    ['Policier & thriller', /thriller|mystery|detective|crime|policier|suspense|roman noir/i],
+    ['Policier & thriller', /\bthriller\b|detective fiction|crime fiction|policier|roman noir/i],
     ['Fantasy', /\bfantasy\b|wizard|sorcery|high fantasy|urban fantasy/i],
     ['Fantastique', /fantastique|supernatural|paranormal/i],
     ['Science-fiction', /science fiction|sci-fi|dystopi|space opera/i],
-    ['Aventure & action', /adventure|action|aventur/i],
+    ['Aventure & action', /adventure fiction|adventure stories|action fiction|roman d['’]aventures/i],
     ['Histoire', /historical fiction|world history|histoire|world war/i],
     ['Biographie', /biograph|memoir|autobiograph/i],
     ['Jeunesse', /juvenile|children|young adult|jeunesse|enfant/i],
@@ -272,6 +276,7 @@ export function normaliseCategories(subjects) {
   ];
 
   const result = [];
+  const counts = new Map();
 
   for (const subject of subjects || []) {
     const value = typeof subject === 'string'
@@ -279,13 +284,22 @@ export function normaliseCategories(subjects) {
       : subject?.name || '';
 
     for (const [name, regex] of rules) {
-      if (regex.test(value) && !result.includes(name)) {
-        result.push(name);
+      if (regex.test(value)) {
+        counts.set(name, (counts.get(name) || 0) + 1);
+        if (!result.includes(name)) result.push(name);
       }
     }
   }
 
-  return result.slice(0, 5);
+  // Certains catalogues associent une rubrique générale « science
+  // fiction et fantasy » à tous les romans imaginaires. Retenir le
+  // genre le plus étayé plutôt que ces deux étiquettes systématiques.
+  const speculative = ['Fantasy', 'Science-fiction'].filter(name => counts.has(name));
+  let excluded = '';
+  if (speculative.length === 2 && counts.get('Fantasy') !== counts.get('Science-fiction')) {
+    excluded = counts.get('Fantasy') > counts.get('Science-fiction') ? 'Science-fiction' : 'Fantasy';
+  }
+  return result.filter(name => name !== excluded).slice(0, 5);
 }
 
 // Classification complémentaire uniquement
@@ -532,7 +546,7 @@ async function lookupBnF(isbn) {
     version: '1.2',
     operation: 'searchRetrieve',
     query: `bib.isbn all "${isbn}"`,
-    recordSchema: 'dublincore',
+    recordSchema: 'intermarcxchange',
     maximumRecords: '3'
   });
 
@@ -541,42 +555,13 @@ async function lookupBnF(isbn) {
     'xml'
   );
 
-  const records = [
-    ...xml.getElementsByTagNameNS('*', 'recordData')
-  ];
-
-  if (!records.length) {
-    throw new Error('Aucune notice BnF');
-  }
-
-  const record = records[0];
-  const book = emptyBook(isbn, 'BnF');
-
-  book.title = cleanTitle(
-    firstXml(record, 'title')
-  );
-
-  book.authors = xmlValues(record, 'creator')
-    .map(cleanAuthor).filter(Boolean);
-
-  book.description = xmlValues(record, 'description')
-    .map(cleanDescription)
-    .find(Boolean) || '';
-
-  book.categories = normaliseCategories(
-    xmlValues(record, 'subject')
-  );
-
-  book.publishedDate = firstXml(record, 'date');
-  book.publisher = firstXml(record, 'publisher');
-  book.language = firstXml(record, 'language');
-
-  const formats = xmlValues(record, 'format').join(' ');
-  const pages = formats.match(
-    /\b(\d{2,5})\s*p(?:ages?)?\b/i
-  );
-
-  if (pages) book.pageCount = Number(pages[1]);
+  const book = parseBnfRecord(xml, isbn);
+  book.title = cleanTitle(book.title);
+  book.description = cleanDescription(book.description);
+  book.categories = [...new Set([
+    ...normaliseCategories(book.subjects),
+    ...inferCategories(book.subjects, book.title, book.description)
+  ])].slice(0, 6);
 
   if (!book.title) throw new Error('Titre absent');
   return book;
@@ -923,7 +908,7 @@ function mergeBooks(primary, fallback) {
   const result = { ...primary };
 
   for (const field of [
-    'title', 'description', 'cover', 'publishedDate',
+    'title', 'description', 'cover', 'originalTitle', 'publishedDate',
     'pageCount', 'publisher', 'language'
   ]) {
     if (!result[field]) {
@@ -977,6 +962,23 @@ function mergeEnrichment(book, extra) {
   return result;
 }
 
+async function enrichUsingTitles(book, lookup) {
+  let result = book;
+  let found = false;
+  for (const title of [...new Set([book.title, book.originalTitle].filter(Boolean))]) {
+    try {
+      const extra = await lookup(title, book.authors);
+      if (extra) {
+        result = mergeEnrichment(result, extra);
+        found = true;
+      }
+      if (result.description && result.categories?.length) break;
+    } catch {}
+  }
+  if (!found) throw new Error('Aucune autre édition du même ouvrage ne fournit ces informations');
+  return result;
+}
+
 function isComplete(book) {
   return Boolean(
     book?.title &&
@@ -1001,10 +1003,7 @@ function cachedBook(isbn) {
     const entry = JSON.parse(raw);
 
     // Une fiche incomplète sera retentée plus tôt.
-    const duration = entry.book?.description &&
-      entry.book?.categories?.length
-      ? 7 * 86400000
-      : 6 * 3600000;
+    const duration = isComplete(entry.book) ? 7 * 86400000 : 2 * 60000;
 
     if (Date.now() - entry.savedAt > duration) {
       localStorage.removeItem(CACHE_PREFIX + isbn);
@@ -1035,12 +1034,12 @@ function saveCache(isbn, book) {
 // MOTEUR PRINCIPAL
 // ===========================================
 
-export async function lookupBook(isbn, googleApiKey = '') {
+export async function lookupBook(isbn, googleApiKey = '', { refresh = false } = {}) {
   const code = cleanIsbn(isbn);
-  const cached = cachedBook(code);
+  const cached = refresh ? null : cachedBook(code);
 
   if (cached) {
-    return { ...cached, warnings: [] };
+    return { ...cached };
   }
 
   // Commencer par les notices vérifiées manuellement. Les catalogues
@@ -1069,21 +1068,17 @@ export async function lookupBook(isbn, googleApiKey = '') {
     }
   }
 
-  // 1. Recherche ISBN internationale.
-  await searchGroup([
+  // Les catalogues sont indépendants : les consulter en parallèle.
+  // Pour une édition française, la BnF préserve le titre, les rôles et
+  // le résumé éditeur français avant les métadonnées internationales.
+  const international = [
     ['Open Library', () => lookupOpenLibrary(code)],
-    ['Inventaire', () => lookupInventaire(code)]
-  ]);
-
-  // 2. Recherche ISBN française et Google Books.
-  if (!isComplete(result)) {
-    await searchGroup([
-      ['BnF', () => lookupBnF(code)],
-      ['Google Books', () =>
-        lookupGoogleBooks(code, googleApiKey)
-      ]
-    ]);
-  }
+    ['Inventaire', () => lookupInventaire(code)],
+    ['Google Books', () => lookupGoogleBooks(code, googleApiKey)]
+  ];
+  const french = ['BnF', () => lookupBnF(code)];
+  await searchGroup(/^9782|^9791[01]/.test(code)
+    ? [french, ...international] : [...international, french]);
 
   // 3. Dernier recours si aucun titre n'est trouvé.
   if (!result?.title) {
@@ -1101,12 +1096,7 @@ export async function lookupBook(isbn, googleApiKey = '') {
     (!result.description || !result.categories?.length)
   ) {
     try {
-      const extra = await enrichFromOpenLibrary(
-        result.title,
-        result.authors
-      );
-
-      result = mergeEnrichment(result, extra);
+      result = await enrichUsingTitles(result, enrichFromOpenLibrary);
     } catch (error) {
       warnings.push(
         'Recherche des autres éditions : ' +
@@ -1123,13 +1113,8 @@ export async function lookupBook(isbn, googleApiKey = '') {
     (!result.description || !result.categories?.length)
   ) {
     try {
-      const extra = await enrichFromGoogle(
-        result.title,
-        result.authors,
-        googleApiKey
-      );
-
-      result = mergeEnrichment(result, extra);
+      result = await enrichUsingTitles(result,
+        (title, authors) => enrichFromGoogle(title, authors, googleApiKey));
     } catch (error) {
       warnings.push(
         'Google Books titre/auteur : ' +
