@@ -52,6 +52,8 @@ test('une histoire d’amour ou des enfants dans un roman adulte ne créent pas 
 test('ne fusionne pas deux tomes distincts avec le même titre de série', () => {
   assert.equal(sameTitle('Black Riders : tome 1', 'Black Riders : tome 2'), false);
   assert.equal(sameTitle('Dune : tome 2', 'Dune'), false);
+  assert.equal(sameTitle('Saga : tome I', 'Saga : tome II'), false);
+  assert.equal(sameTitle('Dune : Le Messie', 'Dune : Les Enfants'), false);
   assert.equal(sameTitle('Un chant avec le duc des mers', 'Un chant avec le duc des mers'), true);
 });
 

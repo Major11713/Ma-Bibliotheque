@@ -179,6 +179,7 @@ dialog::backdrop { background: rgba(10,26,41,.64); backdrop-filter: blur(4px); }
 .form-fields > label, .api-key-field { display: grid; gap: 6px; color: var(--ink-2); font-size: 12px; font-weight: 800; }
 .form-fields input, .form-fields textarea, .api-key-field input { width: 100%; padding: 12px 13px; color: var(--ink); background: var(--white); border: 1px solid var(--line); border-radius: 10px; outline: none; resize: vertical; }
 .form-fields input:focus, .form-fields textarea:focus, .api-key-field input:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(23,50,77,.09); }
+.form-fields input, .form-fields textarea, .api-key-field input, .isbn-form input { font-size: 16px; }
 .form-fields label small { color: var(--muted); font-weight: 500; }
 .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .two-columns label { display: grid; gap: 6px; color: var(--ink-2); font-size: 12px; font-weight: 800; }
@@ -235,6 +236,9 @@ dialog::backdrop { background: rgba(10,26,41,.64); backdrop-filter: blur(4px); }
 .info-panel ol { margin: 9px 0 0; padding-left: 21px; color: var(--ink-2); font-size: 13px; line-height: 1.7; }
 .storage-status { padding: 12px; color: var(--muted); background: var(--paper-deep); border-radius: 10px; font-size: 11px; line-height: 1.5; }
 .version-line { margin: 18px 0 0; color: var(--muted); font-size: 10px; text-align: center; }
+.import-choice { display: grid; gap: 14px; margin: 16px 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+.import-choice label { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
+.import-choice input { width: auto; flex: none; margin-top: 5px; }
 
 .toast-region { position: fixed; z-index: 100; left: 50%; bottom: calc(96px + var(--safe-bottom)); display: grid; gap: 8px; width: min(92%, 460px); transform: translateX(-50%); pointer-events: none; }
 .toast { padding: 13px 15px; color: #fff; background: var(--ink); border-left: 4px solid var(--sage); border-radius: 10px; box-shadow: var(--shadow); font-size: 13px; font-weight: 750; animation: toast-in .25s ease-out; }

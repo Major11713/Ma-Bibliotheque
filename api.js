@@ -1,8 +1,7 @@
 import { translateDescriptionToFrench, inferCategories } from './enrichment.js';
-import { lookupLocalCatalog } from './catalog-local.js';
 import { parseBnfRecord } from './bnf.js';
 const TIMEOUT_MS = 11000;
-const CACHE_PREFIX = 'mb-livres-v7-';
+const CACHE_PREFIX = 'mb-livres-v8-';
 const GOOGLE_PAUSE_MS = 30 * 60 * 1000;
 
 let googleBlockedUntil = 0;
@@ -57,9 +56,7 @@ function plainText(value) {
 }
 
 function cleanTitle(value) {
-  return plainText(value)
-    .split(/\s+\/\s+/)[0]
-    .trim();
+  return plainText(value).trim();
 }
 
 function cleanAuthor(value) {
@@ -205,9 +202,7 @@ function normalized(value) {
 }
 
 function titleCore(value) {
-  return normalized(
-    cleanTitle(value).split(/\s*[:–—]\s*/)[0]
-  );
+  return normalized(cleanTitle(value));
 }
 
 export function sameTitle(a, b) {
@@ -330,7 +325,7 @@ function coverFromId(id) {
     : '';
 }
 
-function imageExists(url) {
+function imageSize(url) {
   return new Promise(resolve => {
     if (!url) return resolve(false);
 
@@ -350,10 +345,8 @@ function imageExists(url) {
       () => finish(false), 4500
     );
 
-    img.onload = () => finish(
-      img.naturalWidth >= 40 &&
-      img.naturalHeight >= 50
-    );
+    img.onload = () => finish(img.naturalWidth >= 40 && img.naturalHeight >= 50
+      ? img.naturalWidth * img.naturalHeight : 0);
 
     img.onerror = () => finish(false);
     img.src = url;
@@ -379,10 +372,11 @@ async function findCover(isbn, existing = '') {
   if (existing) urls.push(existing);
 
   const valid = await Promise.all(
-    urls.map(imageExists)
+    urls.map(imageSize)
   );
 
-  const index = valid.findIndex(Boolean);
+  const largest = Math.max(...valid);
+  const index = largest > 0 ? valid.indexOf(largest) : -1;
   return index >= 0 ? urls[index] : '';
 }
 
@@ -479,9 +473,7 @@ async function lookupOpenLibrary(isbn) {
   ]);
 
   book.cover = coverFromId(
-    edition?.covers?.find(id => id > 0) ||
-    search?.cover_i ||
-    work?.covers?.find(id => id > 0)
+    edition?.covers?.find(id => id > 0)
   );
 
   book.publishedDate =
@@ -572,13 +564,12 @@ async function lookupBnF(isbn) {
 // ===========================================
 
 async function googleRequest(params, apiKey = '') {
+  const pauseKey = apiKey ? 'mb-google-pause-personal-' + keyFingerprint(apiKey) : 'mb-google-pause';
   const cooldown = Number(
-    localStorage.getItem('mb-google-pause') || 0
+    localStorage.getItem(pauseKey) || 0
   );
 
-  googleBlockedUntil = Math.max(
-    googleBlockedUntil, cooldown
-  );
+  googleBlockedUntil = cooldown;
 
   if (Date.now() < googleBlockedUntil) {
     throw new Error('Quota Google temporairement limité');
@@ -597,13 +588,19 @@ async function googleRequest(params, apiKey = '') {
 
       try {
         localStorage.setItem(
-          'mb-google-pause',
+          pauseKey,
           String(googleBlockedUntil)
         );
       } catch {}
     }
     throw error;
   }
+}
+
+function keyFingerprint(key) {
+  let hash = 2166136261;
+  for (const char of key) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  return (hash >>> 0).toString(16);
 }
 
 function googleBook(info, isbn, source = 'Google Books') {
@@ -993,10 +990,10 @@ function isComplete(book) {
 // CACHE MÉTADONNÉES
 // ===========================================
 
-function cachedBook(isbn) {
+function cachedBook(isbn, apiKey = '') {
   try {
     const raw = localStorage.getItem(
-      CACHE_PREFIX + isbn
+      CACHE_PREFIX + isbn + (apiKey ? '-' + keyFingerprint(apiKey) : '')
     );
     if (!raw) return null;
 
@@ -1006,7 +1003,7 @@ function cachedBook(isbn) {
     const duration = isComplete(entry.book) ? 7 * 86400000 : 2 * 60000;
 
     if (Date.now() - entry.savedAt > duration) {
-      localStorage.removeItem(CACHE_PREFIX + isbn);
+      localStorage.removeItem(CACHE_PREFIX + isbn + (apiKey ? '-' + keyFingerprint(apiKey) : ''));
       return null;
     }
 
@@ -1016,12 +1013,12 @@ function cachedBook(isbn) {
   }
 }
 
-function saveCache(isbn, book) {
+function saveCache(isbn, book, apiKey = '') {
   if (!book?.title) return;
 
   try {
     localStorage.setItem(
-      CACHE_PREFIX + isbn,
+      CACHE_PREFIX + isbn + (apiKey ? '-' + keyFingerprint(apiKey) : ''),
       JSON.stringify({
         savedAt: Date.now(),
         book
@@ -1036,15 +1033,13 @@ function saveCache(isbn, book) {
 
 export async function lookupBook(isbn, googleApiKey = '', { refresh = false } = {}) {
   const code = cleanIsbn(isbn);
-  const cached = refresh ? null : cachedBook(code);
+  const cached = refresh ? null : cachedBook(code, googleApiKey);
 
   if (cached) {
     return { ...cached };
   }
 
-  // Commencer par les notices vérifiées manuellement. Les catalogues
-  // publics restent consultés ensuite afin de compléter la fiche.
-  let result = lookupLocalCatalog(code);
+  let result = null;
   const warnings = [];
 
   async function searchGroup(sources) {
@@ -1200,7 +1195,7 @@ export async function lookupBook(isbn, googleApiKey = '', { refresh = false } = 
     result.isbn = code;
     result.warnings = warnings;
 
-    saveCache(code, result);
+    saveCache(code, result, googleApiKey);
 
     if (warnings.length) {
       console.info(

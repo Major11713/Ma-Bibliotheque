@@ -12,7 +12,7 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <link rel="icon" href="./icons/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=1.2.0" />
+    <link rel="stylesheet" href="./styles.css?v=1.3.0" />
     <title>Ma Bibliothèque</title>
   </head>
   <body>
@@ -229,13 +229,31 @@
           <ol><li>Ouvrez le site dans Safari.</li><li>Touchez <strong>Partager</strong>.</li><li>Choisissez <strong>Sur l’écran d’accueil</strong>, puis <strong>Ajouter</strong>.</li></ol>
         </div>
         <div class="storage-status" id="storageStatus"></div>
-        <p class="version-line">Ma Bibliothèque · version 1.2.0 · sans compte, sans publicité</p>
+        <p class="version-line">Ma Bibliothèque · version 1.3.0 · sans compte, sans publicité</p>
       </section>
     </dialog>
 
+    <dialog class="sheet-dialog" id="importPreviewDialog" aria-labelledby="importPreviewTitle">
+      <section class="sheet settings-sheet">
+        <header class="sheet-header">
+          <button class="round-button" type="button" data-close-dialog="importPreviewDialog" aria-label="Annuler l’import">×</button>
+          <h2 id="importPreviewTitle">Vérifier l’import</h2>
+        </header>
+        <div class="settings-group">
+          <p id="importSummary"></p><p id="importConflicts"></p>
+          <fieldset class="import-choice">
+            <legend>Pour les ISBN déjà enregistrés</legend>
+            <label><input type="radio" name="importConflict" value="keep" checked /> Conserver mes fiches actuelles et mes corrections</label>
+            <label><input type="radio" name="importConflict" value="overwrite" /> Remplacer ces fiches par celles du fichier importé</label>
+          </fieldset>
+          <p>Les livres absents du fichier restent dans votre collection.</p>
+          <button class="button primary full" id="confirmImportButton" type="button">Confirmer l’import</button>
+        </div>
+      </section>
+    </dialog>
     <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
 
-    <script src="./vendor/zxing-browser.min.js?v=1.2.0"></script>
-    <script type="module" src="./app.js?v=1.2.0"></script>
+    <script src="./vendor/zxing-browser.min.js?v=1.3.0"></script>
+    <script type="module" src="./app.js?v=1.3.0"></script>
   </body>
 </html>

@@ -32,7 +32,7 @@ test('n’accepte jamais le premier résultat Google si son ISBN est différent'
   }
 });
 
-test('complète une notice publique connue mais incomplète', async () => {
+test('ne fournit aucune fiche spéciale lorsque les catalogues ne répondent pas', async () => {
   const originalFetch = globalThis.fetch;
   const originalLocalStorage = globalThis.localStorage;
   const memory = new Map();
@@ -48,14 +48,38 @@ test('complète une notice publique connue mais incomplète', async () => {
 
   try {
     const result = await lookupBook('9782755640427');
-    assert.equal(result.title, 'Glitter Girl — Black Riders, tome 1');
-    assert.deepEqual(result.authors, ['C. J. Ronnie']);
-    assert.equal(result.pageCount, 588);
-    assert.ok(result.description.includes('Hayley quitte New York'));
-    assert.ok(result.cover.startsWith('https://'));
-    assert.ok(result.source.includes('Catalogue local vérifié'));
+    assert.equal(result.title, '');
+    assert.equal(result.description, '');
+    assert.equal(result.cover, '');
+    assert.equal(result.source, 'Saisie manuelle');
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.localStorage = originalLocalStorage;
   }
+});
+
+test('une nouvelle clé Google contourne la pause et le cache de la recherche sans clé', async () => {
+  const previous = {fetch:globalThis.fetch,localStorage:globalThis.localStorage};
+  const memory=new Map();
+  globalThis.localStorage={getItem:key=>memory.get(key)||null,setItem:(key,value)=>memory.set(key,String(value)),removeItem:key=>memory.delete(key)};
+  let calls=0;
+  globalThis.fetch=async input=>{
+    const url=String(input);
+    if(url.includes('googleapis.com')) {
+      calls++;
+      if(!url.includes('key=cle-test')) return new Response('{}',{status:429});
+      return new Response(JSON.stringify({items:[{volumeInfo:{
+        title:'Publication trouvée',authors:['Auteur'],language:'fr',categories:['Romance'],
+        description:'Un roman sentimental qui raconte les retrouvailles de deux amis après plusieurs années loin de leur village.',
+        industryIdentifiers:[{identifier:'9780306406157'}]
+      }}]}));
+    }
+    return new Response('{}',{status:404});
+  };
+  try {
+    await lookupBook('9780306406157');
+    const result=await lookupBook('9780306406157','cle-test');
+    assert.equal(calls,2);
+    assert.equal(result.title,'Publication trouvée');
+  } finally { Object.assign(globalThis,previous); }
 });

@@ -1,19 +1,21 @@
-const VERSION = 'ma-bibliotheque-v1.2.0';
+const VERSION = 'ma-bibliotheque-v1.3.0';
 const RUNTIME = `${VERSION}-runtime`;
+const COVERS = 'ma-bibliotheque-covers-v1';
 
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css?v=1.2.0',
-  './app.js?v=1.2.0',
+  './styles.css?v=1.3.0',
+  './app.js?v=1.3.0',
   './db.js',
+  './isbn.js',
+  './backup.js',
   './api.js',
   './bnf.js',
   './enrichment.js',
-  './catalog-local.js',
   './scanner.js',
   './manifest.webmanifest',
-  './vendor/zxing-browser.min.js?v=1.2.0',
+  './vendor/zxing-browser.min.js?v=1.3.0',
   './icons/favicon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -37,7 +39,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
     await Promise.all(keys
-      .filter((key) => key.startsWith('ma-bibliotheque-') && key !== VERSION && key !== RUNTIME)
+      .filter((key) => key.startsWith('ma-bibliotheque-') && key !== VERSION && key !== RUNTIME && key !== COVERS)
       .map((key) => caches.delete(key)));
     await self.clients.claim();
   })());
@@ -55,9 +57,11 @@ self.addEventListener('fetch', (event) => {
         if (cached) return cached;
         try {
           const response = await fetch(request);
-          if (response.ok) {
-            const cache = await caches.open(RUNTIME);
-            await cache.put(request, response.clone());
+          if (response.ok || response.type === 'opaque') {
+            try {
+              const cache = await caches.open(COVERS);
+              await cache.put(request, response.clone());
+            } catch { /* Le réseau reste utilisable si le stockage est plein. */ }
           }
           return response;
         } catch {
@@ -72,8 +76,14 @@ self.addEventListener('fetch', (event) => {
     try {
       const response = await fetch(request);
       if (response.ok) {
-        const cache = await caches.open(RUNTIME);
-        await cache.put(request, response.clone());
+        try {
+          const cache = await caches.open(RUNTIME);
+          await cache.put(request, response.clone());
+        } catch { /* Ne pas masquer une réponse réseau valide. */ }
+      }
+      if (!response.ok) {
+        const cached = await caches.match(request);
+        if (cached) return cached;
       }
       return response;
     } catch {

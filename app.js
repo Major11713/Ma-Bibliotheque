@@ -1,4 +1,6 @@
 import { getAllBooks, getBook, saveBook, removeBook, importBooks, getSetting, setSetting, requestPersistentStorage, getStorageEstimate } from './db.js';
+import { normaliseIsbn } from './isbn.js';
+import { validateBackup } from './backup.js';
 import { lookupBook } from './api.js';
 import { startScanner, stopScanner, toggleTorch } from './scanner.js';
 
@@ -11,6 +13,12 @@ const state = {
   lastScanned: '',
   lastScannedAt: 0,
   lookupToken: 0,
+  cameraToken: 0,
+  scanSession: 0,
+  detailToken: 0,
+  pendingImport: null,
+  formPublisher: '',
+  formLanguage: '',
   audio: null,
   formDataSource: 'Saisie manuelle',
   formDescriptionTranslated: false,
@@ -26,6 +34,7 @@ const el = Object.fromEntries([
   'formCoverPreview', 'formCoverFallback', 'formSource', 'bookDetailDialog', 'bookDetailContent',
   'deleteBookButton', 'toggleBookStatus', 'editBookButton', 'refreshBookButton', 'settingsButton', 'settingsDialog',
   'exportButton', 'importButton', 'importFile', 'googleApiKey', 'saveApiKeyButton', 'storageStatus',
+  'importPreviewDialog', 'importSummary', 'importConflicts', 'confirmImportButton',
   'toastRegion', 'networkBanner', 'manualAddButton', 'welcomeDate'
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -126,6 +135,9 @@ function showDialog(dialog) {
 }
 
 function closeDialog(dialog) {
+  if (dialog === el.bookFormDialog) { state.lookupToken++; setFormLoading(false); }
+  if (dialog === el.bookDetailDialog) state.detailToken++;
+  if (dialog === el.importPreviewDialog) state.pendingImport = null;
   if (dialog.open) dialog.close();
 }
 
@@ -144,30 +156,7 @@ function updateNetworkState() {
   el.networkBanner.hidden = navigator.onLine;
 }
 
-export function normaliseIsbn(value) {
-  const cleaned = String(value || '').toUpperCase().replace(/[^0-9X]/g, '');
-  if (cleaned.length === 10 && isValidIsbn10(cleaned)) return isbn10To13(cleaned);
-  if (cleaned.length === 13 && isValidIsbn13(cleaned) && /^(978|979)/.test(cleaned)) return cleaned;
-  return '';
-}
 
-function isValidIsbn10(value) {
-  if (!/^\d{9}[\dX]$/.test(value)) return false;
-  const sum = [...value].reduce((total, char, index) => total + (char === 'X' ? 10 : Number(char)) * (10 - index), 0);
-  return sum % 11 === 0;
-}
-
-function isValidIsbn13(value) {
-  if (!/^\d{13}$/.test(value)) return false;
-  const sum = [...value.slice(0, 12)].reduce((total, char, index) => total + Number(char) * (index % 2 ? 3 : 1), 0);
-  return (10 - (sum % 10)) % 10 === Number(value[12]);
-}
-
-function isbn10To13(value) {
-  const base = `978${value.slice(0, 9)}`;
-  const sum = [...base].reduce((total, char, index) => total + Number(char) * (index % 2 ? 3 : 1), 0);
-  return `${base}${(10 - (sum % 10)) % 10}`;
-}
 
 async function ensureAudio() {
   try {
@@ -197,6 +186,9 @@ async function playFeedback(positive) {
 }
 
 function setScanMode(mode) {
+  state.scanSession++;
+  state.scanBusy = false;
+  state.lastScanned = '';
   state.scanMode = mode === 'add' ? 'add' : 'check';
   document.querySelectorAll('[data-scan-mode]').forEach((button) => button.classList.toggle('active', button.dataset.scanMode === state.scanMode));
   el.scannerHint.textContent = state.scanMode === 'check'
@@ -218,6 +210,7 @@ async function openScanner(mode = 'check') {
 }
 
 async function startCamera() {
+  const token = ++state.cameraToken;
   state.scanBusy = false;
   el.scanResult.hidden = true;
   el.torchButton.hidden = true;
@@ -225,11 +218,13 @@ async function startCamera() {
   el.scannerMessage.textContent = 'Autorisez la caméra si Safari le demande';
   try {
     await startScanner(el.scannerVideo, processScan, ({ torch }) => {
+      if (token !== state.cameraToken || !el.scannerDialog.open) return;
       el.cameraPlaceholder.hidden = true;
       el.torchButton.hidden = !torch;
       el.scannerMessage.textContent = 'Placez le code-barres ISBN dans le cadre';
     });
   } catch (error) {
+    if (token !== state.cameraToken || !el.scannerDialog.open) return;
     el.cameraPlaceholder.hidden = false;
     const denied = error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError';
     el.scannerMessage.textContent = denied ? 'Caméra refusée — saisissez l’ISBN ci-dessous' : 'Caméra indisponible — utilisez la saisie manuelle';
@@ -238,6 +233,8 @@ async function startCamera() {
 }
 
 async function closeScanner() {
+  state.cameraToken++;
+  state.scanSession++;
   await stopScanner();
   el.scannerVideo.srcObject = null;
   closeDialog(el.scannerDialog);
@@ -245,48 +242,44 @@ async function closeScanner() {
 
 async function processScan(rawValue) {
   const isbn = normaliseIsbn(rawValue);
-  if (!isbn) {
-    el.scannerMessage.textContent = 'Ce code ne semble pas être un ISBN valide';
-    return;
-  }
+  if (!isbn) { el.scannerMessage.textContent = 'Ce code ne semble pas être un ISBN valide'; return; }
   const now = Date.now();
   if (state.scanBusy || (state.lastScanned === isbn && now - state.lastScannedAt < 3500)) return;
+  const session = state.scanSession;
+  const active = () => session === state.scanSession && el.scannerDialog.open;
   state.scanBusy = true;
   state.lastScanned = isbn;
   state.lastScannedAt = now;
-  await stopScanner();
-  el.scannerMessage.textContent = `ISBN ${isbn} détecté`;
-  const existing = await getBook(isbn);
-
-  if (state.scanMode === 'add') {
-    if (existing) {
-      await playFeedback(false);
-      showScanResult(false, 'Déjà enregistré', existing.status === 'owned' ? 'Ce livre est déjà dans votre bibliothèque.' : 'Ce livre est déjà dans votre liste d’envies.', [
-        ['Voir le livre', 'details'], ['Scanner un autre', 'rescan']
-      ], isbn);
-      state.scanBusy = false;
+  try {
+    stopScanner();
+    el.scannerMessage.textContent = `ISBN ${isbn} détecté`;
+    const existing = await getBook(isbn);
+    if (!active()) return;
+    if (state.scanMode === 'add') {
+      await playFeedback(!existing);
+      if (!active()) return;
+      if (existing) {
+        showScanResult(false, 'Déjà enregistré', existing.status === 'owned' ? 'Ce livre est déjà dans votre bibliothèque.' : 'Ce livre est déjà dans votre liste d’envies.',
+          [['Voir le livre', 'details'], ['Scanner un autre', 'rescan']], isbn);
+      } else await beginAddByIsbn(isbn, 'owned');
       return;
     }
-    await playFeedback(true);
-    await beginAddByIsbn(isbn, 'owned');
-    state.scanBusy = false;
-    return;
+    const owned = existing?.status === 'owned';
+    await playFeedback(!owned);
+    if (!active()) return;
+    if (owned) {
+      showScanResult(false, 'Vous l’avez déjà', `${existing.title || 'Ce livre'} est bien dans votre bibliothèque.`,
+        [['Voir le livre', 'details'], ['Scanner un autre', 'rescan']], isbn);
+    } else {
+      showScanResult(true, 'Nouveau livre', existing?.status === 'wishlist' ? 'Vous ne le possédez pas encore, mais il est dans vos envies.' : 'Cet ISBN n’est pas dans votre bibliothèque.',
+        existing ? [['Voir mon envie', 'details'], ['Je l’ai acheté', 'moveowned'], ['Scanner un autre', 'rescan']]
+          : [['Enregistrer', 'add'], ['Liste d’envies', 'wishlist'], ['Scanner un autre', 'rescan']], isbn);
+    }
+  } catch (error) {
+    if (active()) toast(`Vérification impossible : ${error.message}`, true);
+  } finally {
+    if (session === state.scanSession) state.scanBusy = false;
   }
-
-  if (existing?.status === 'owned') {
-    await playFeedback(false);
-    showScanResult(false, 'Vous l’avez déjà', `${existing.title || 'Ce livre'} est bien dans votre bibliothèque.`, [
-      ['Voir le livre', 'details'], ['Scanner un autre', 'rescan']
-    ], isbn);
-  } else {
-    await playFeedback(true);
-    showScanResult(true, 'Nouveau livre', existing?.status === 'wishlist' ? 'Vous ne le possédez pas encore, mais il est dans vos envies.' : 'Cet ISBN n’est pas dans votre bibliothèque.', existing ? [
-      ['Voir mon envie', 'details'], ['Je l’ai acheté', 'moveowned']
-    ] : [
-      ['Enregistrer', 'add'], ['Liste d’envies', 'wishlist'], ['Scanner un autre', 'rescan']
-    ], isbn);
-  }
-  state.scanBusy = false;
 }
 
 function showScanResult(positive, title, message, actions, isbn) {
@@ -296,6 +289,9 @@ function showScanResult(positive, title, message, actions, isbn) {
 }
 
 function clearBookForm() {
+  state.lookupToken++;
+  state.formPublisher = '';
+  state.formLanguage = '';
   state.formDataSource = 'Saisie manuelle';
   state.formDescriptionTranslated = false;
   el.bookForm.reset();
@@ -312,10 +308,17 @@ function clearBookForm() {
   el.formCoverPreview.hidden = true;
   el.formCoverFallback.hidden = false;
   el.formCoverFallback.textContent = 'Aa';
-  el.metadataLoading.hidden = true;
+  setFormLoading(false);
+}
+
+function setFormLoading(loading) {
+  el.metadataLoading.hidden = !loading;
+  el.bookForm.querySelectorAll('input:not([type="hidden"]), textarea, button[type="submit"]').forEach(input => { input.disabled = loading; });
 }
 
 function fillBookForm(book, { preserveIsbn = false } = {}) {
+  state.formPublisher = book.publisher || '';
+  state.formLanguage = book.language || '';
   state.formDataSource = book.source || 'Saisie manuelle';
   state.formDescriptionTranslated = Boolean(book.descriptionTranslated);
   if (!preserveIsbn) el.formIsbn.value = book.isbn?.startsWith('manuel-') ? '' : (book.isbn || '');
@@ -356,21 +359,25 @@ async function openManualForm() {
 }
 
 async function beginAddByIsbn(isbn, status = 'owned') {
+  const initialToken = state.lookupToken;
+  const session = state.scanSession;
+  const scannerWasOpen = el.scannerDialog.open;
   const existing = await getBook(isbn);
+  if (initialToken !== state.lookupToken || (scannerWasOpen && (session !== state.scanSession || !el.scannerDialog.open))) return;
   if (existing) {
     toast('Ce livre est déjà enregistré.', true);
     await closeScanner();
     openBookDetail(isbn);
     return;
   }
-  const token = ++state.lookupToken;
   await closeScanner();
   clearBookForm();
+  const token = state.lookupToken;
   el.formEyebrow.textContent = `ISBN ${isbn}`;
   el.formTitle.textContent = 'Confirmer les informations';
   el.formIsbn.value = isbn;
   el.bookForm.querySelector(`input[name="status"][value="${status}"]`).checked = true;
-  el.metadataLoading.hidden = false;
+  setFormLoading(true);
   showDialog(el.bookFormDialog);
   try {
     const apiKey = await getSetting('googleApiKey');
@@ -383,14 +390,19 @@ async function beginAddByIsbn(isbn, status = 'owned') {
       if (missing.length) toast(`Informations absentes des catalogues consultés : ${missing.join(', ')}.`, true);
     }
   } catch {
-    toast('Catalogue indisponible. Vous pouvez tout de même saisir le livre à la main.', true);
+    if (token === state.lookupToken && el.bookFormDialog.open) toast('Catalogue indisponible. Vous pouvez tout de même saisir le livre à la main.', true);
   } finally {
-    if (token === state.lookupToken) el.metadataLoading.hidden = true;
+    if (token === state.lookupToken) setFormLoading(false);
   }
 }
 
 async function submitBookForm(event) {
   event.preventDefault();
+  if (!el.metadataLoading.hidden) return;
+  if (!el.formBookTitle.value.trim()) { toast('Indiquez un titre pour ce livre.', true); return; }
+  if (el.formCover.value.trim() && !/^https?:\/\//i.test(el.formCover.value.trim())) {
+    toast('La couverture doit utiliser une adresse http ou https.', true); return;
+  }
   const originalIsbn = el.editingOriginalIsbn.value;
   const enteredIsbn = el.formIsbn.value.trim();
   const canonicalIsbn = enteredIsbn ? normaliseIsbn(enteredIsbn) : '';
@@ -415,6 +427,8 @@ async function submitBookForm(event) {
     publishedDate: el.formPublishedDate.value.trim(),
     pageCount: el.formPageCount.value.trim(),
     cover: el.formCover.value.trim(),
+    publisher: state.formPublisher,
+    language: state.formLanguage,
     status: new FormData(el.bookForm).get('status') || 'owned',
     source: state.formDataSource || existing?.source || (canonicalIsbn ? 'Saisie vérifiée manuellement' : 'Saisie manuelle'),
     descriptionTranslated: state.formDescriptionTranslated,
@@ -435,6 +449,7 @@ function openBookDetail(isbn) {
   const book = state.books.find((item) => item.isbn === isbn);
   if (!book) return;
   state.selectedIsbn = isbn;
+  state.detailToken++;
   const meta = [
     ...(book.categories || []),
     book.publishedDate ? `Paru en ${book.publishedDate}` : '',
@@ -483,9 +498,11 @@ async function refreshSelectedBook() {
   const originalLabel = el.refreshBookButton.textContent;
   el.refreshBookButton.disabled = true;
   el.refreshBookButton.textContent = 'Recherche en cours…';
+  const token = state.detailToken;
   try {
     const apiKey = await getSetting('googleApiKey');
     const fresh = await lookupBook(book.isbn, apiKey, { refresh: true });
+    if (token !== state.detailToken || !el.bookDetailDialog.open) return;
     if (!fresh.title && !fresh.description && !fresh.cover) {
       toast('Aucune nouvelle information fiable n’a été trouvée.', true);
       return;
@@ -495,7 +512,7 @@ async function refreshSelectedBook() {
       ...Object.fromEntries(['title', 'description', 'cover', 'publishedDate', 'pageCount', 'publisher', 'language']
         .map((key) => [key, fresh[key] || book[key] || ''])),
       authors: fresh.authors?.length ? fresh.authors : (book.authors || []),
-      categories: [...new Set([...(fresh.categories || []), ...(book.categories || [])])],
+      categories: fresh.categories?.length ? fresh.categories : (book.categories || []),
       source: fresh.source || book.source,
       descriptionTranslated: fresh.description ? Boolean(fresh.descriptionTranslated) : Boolean(book.descriptionTranslated),
       status: book.status,
@@ -509,7 +526,7 @@ async function refreshSelectedBook() {
     showDialog(el.bookFormDialog);
     toast('Les nouvelles informations sont prêtes à être vérifiées.');
   } catch {
-    toast('Les catalogues sont indisponibles pour le moment. Réessayez plus tard.', true);
+    if (token === state.detailToken && el.bookDetailDialog.open) toast('Les catalogues sont indisponibles pour le moment. Réessayez plus tard.', true);
   } finally {
     el.refreshBookButton.disabled = false;
     el.refreshBookButton.textContent = originalLabel;
@@ -519,21 +536,24 @@ async function refreshSelectedBook() {
 async function toggleSelectedStatus() {
   const book = state.books.find((item) => item.isbn === state.selectedIsbn);
   if (!book) return;
-  book.status = book.status === 'owned' ? 'wishlist' : 'owned';
-  book.updatedAt = new Date().toISOString();
-  await saveBook(book);
-  closeDialog(el.bookDetailDialog);
-  await refreshBooks();
-  toast(book.status === 'owned' ? 'Livre rangé dans votre bibliothèque.' : 'Livre déplacé dans vos envies.');
+  const changed = { ...book, status: book.status === 'owned' ? 'wishlist' : 'owned', updatedAt: new Date().toISOString() };
+  try {
+    await saveBook(changed, book.isbn);
+    closeDialog(el.bookDetailDialog);
+    await refreshBooks();
+    toast(changed.status === 'owned' ? 'Livre rangé dans votre bibliothèque.' : 'Livre déplacé dans vos envies.');
+  } catch (error) { toast(`Déplacement impossible : ${error.message}`, true); }
 }
 
 async function deleteSelectedBook() {
   const book = state.books.find((item) => item.isbn === state.selectedIsbn);
   if (!book || !confirm(`Supprimer « ${book.title} » de Ma Bibliothèque ?`)) return;
-  await removeBook(book.isbn);
-  closeDialog(el.bookDetailDialog);
-  await refreshBooks();
-  toast('Livre supprimé.');
+  try {
+    await removeBook(book.isbn);
+    closeDialog(el.bookDetailDialog);
+    await refreshBooks();
+    toast('Livre supprimé.');
+  } catch (error) { toast(`Suppression impossible : ${error.message}`, true); }
 }
 
 function exportLibrary() {
@@ -556,37 +576,40 @@ function exportLibrary() {
 async function handleImport(file) {
   if (!file) return;
   try {
-    const payload = JSON.parse(await file.text());
-    if (payload.app !== 'Ma Bibliothèque' || !Array.isArray(payload.books)) throw new Error('Format de sauvegarde non reconnu');
-    const valid = payload.books.map((book, index) => {
-      if (!book || typeof book.title !== 'string') throw new Error(`Livre invalide à la ligne ${index + 1}`);
-      const rawIsbn = String(book.isbn || '');
-      const isbn = rawIsbn.startsWith('manuel-') ? rawIsbn : normaliseIsbn(rawIsbn);
-      if (!isbn) throw new Error(`ISBN invalide pour « ${book.title} »`);
-      return {
-        isbn,
-        title: book.title.trim() || 'Sans titre',
-        authors: Array.isArray(book.authors) ? book.authors.map(String) : [],
-        categories: Array.isArray(book.categories) ? book.categories.map(String) : [],
-        description: String(book.description || ''),
-        publishedDate: String(book.publishedDate || ''),
-        pageCount: String(book.pageCount || ''),
-        cover: String(book.cover || ''),
-        status: book.status === 'wishlist' ? 'wishlist' : 'owned',
-        source: String(book.source || 'Import JSON'),
-        descriptionTranslated: Boolean(book.descriptionTranslated),
-        addedAt: book.addedAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-    });
-    await importBooks(valid);
-    await refreshBooks();
-    closeDialog(el.settingsDialog);
-    toast(`${valid.length} livre${valid.length > 1 ? 's' : ''} importé${valid.length > 1 ? 's' : ''}.`);
+    if (file.size > 10 * 1024 * 1024) throw new Error('La sauvegarde dépasse 10 Mo.');
+    const valid = validateBackup(JSON.parse(await file.text()));
+    const existing = await getAllBooks();
+    const ids = new Set(existing.map(book => book.isbn));
+    const conflicts = valid.filter(book => ids.has(book.isbn));
+    state.pendingImport = valid;
+    el.importSummary.textContent = `${valid.length} livre(s) dans le fichier : ${valid.length - conflicts.length} nouveau(x), ${conflicts.length} déjà enregistré(s).`;
+    el.importConflicts.textContent = conflicts.length
+      ? 'Déjà enregistrés : ' + conflicts.slice(0, 20).map(book => book.title).join(', ') + (conflicts.length > 20 ? '…' : '')
+      : 'Aucune fiche existante ne sera remplacée.';
+    el.importPreviewDialog.querySelector('input[value="keep"]').checked = true;
+    showDialog(el.importPreviewDialog);
   } catch (error) {
     toast(`Import impossible : ${error.message}`, true);
   } finally {
     el.importFile.value = '';
+  }
+}
+
+async function confirmImport() {
+  if (!state.pendingImport || el.confirmImportButton.disabled) return;
+  const books = state.pendingImport;
+  const conflict = el.importPreviewDialog.querySelector('input[name="importConflict"]:checked')?.value || 'keep';
+  el.confirmImportButton.disabled = true;
+  try {
+    const report = await importBooks(books, { conflict });
+    closeDialog(el.importPreviewDialog);
+    closeDialog(el.settingsDialog);
+    await refreshBooks();
+    toast(`${report.added} ajouté(s), ${report.kept} conservé(s), ${report.updated} remplacé(s).`);
+  } catch (error) {
+    toast(`Import impossible : ${error.message}`, true);
+  } finally {
+    el.confirmImportButton.disabled = false;
   }
 }
 
@@ -610,11 +633,13 @@ async function moveWishlistToOwned(isbn) {
   if (!book) return;
   book.status = 'owned';
   book.updatedAt = new Date().toISOString();
-  await saveBook(book);
-  await closeScanner();
-  await refreshBooks();
-  await playFeedback(true);
-  toast('Livre ajouté à votre bibliothèque.');
+  try {
+    await saveBook(book, book.isbn);
+    await closeScanner();
+    await refreshBooks();
+    await playFeedback(true);
+    toast('Livre ajouté à votre bibliothèque.');
+  } catch (error) { toast(`Déplacement impossible : ${error.message}`, true); }
 }
 
 function bindEvents() {
@@ -627,7 +652,9 @@ function bindEvents() {
   }));
   el.closeScanner.addEventListener('click', closeScanner);
   el.scannerDialog.addEventListener('cancel', (event) => { event.preventDefault(); closeScanner(); });
-  el.bookFormDialog.addEventListener('cancel', () => { state.lookupToken += 1; });
+  el.bookFormDialog.addEventListener('cancel', () => { state.lookupToken++; setFormLoading(false); });
+  el.bookDetailDialog.addEventListener('cancel', () => { state.detailToken++; });
+  el.importPreviewDialog.addEventListener('cancel', () => { state.pendingImport = null; });
   el.manualIsbnForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     await ensureAudio();
@@ -674,14 +701,21 @@ function bindEvents() {
   el.exportButton.addEventListener('click', exportLibrary);
   el.importButton.addEventListener('click', () => el.importFile.click());
   el.importFile.addEventListener('change', () => handleImport(el.importFile.files?.[0]));
+  el.confirmImportButton.addEventListener('click', confirmImport);
   el.saveApiKeyButton.addEventListener('click', async () => {
-    await setSetting('googleApiKey', el.googleApiKey.value.trim());
-    toast('Clé enregistrée uniquement sur cet appareil.');
+    try {
+      await setSetting('googleApiKey', el.googleApiKey.value.trim());
+      toast('Clé enregistrée uniquement sur cet appareil.');
+    } catch (error) { toast(`Clé non sauvegardée : ${error.message}`, true); }
   });
   window.addEventListener('online', updateNetworkState);
   window.addEventListener('offline', updateNetworkState);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && el.scannerDialog.open) stopScanner();
+    if (!el.scannerDialog.open) return;
+    if (document.hidden) {
+      state.cameraToken++;
+      stopScanner();
+    } else if (el.scanResult.hidden && !state.scanBusy) startCamera();
   });
 }
 

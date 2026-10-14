@@ -1,0 +1,8 @@
+{
+  "app": "Ma Bibliothèque",
+  "version": 1,
+  "books": [
+    { "isbn": "9780140328721", "title": "Ancienne fiche importée", "authors": ["Auteur de test"], "categories": ["Jeunesse"], "status": "wishlist" },
+    { "isbn": "9782266320481", "title": "Autre livre importé", "authors": ["Auteur de test"], "categories": ["Science-fiction"], "status": "owned" }
+  ]
+}

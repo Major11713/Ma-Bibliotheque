@@ -6,14 +6,16 @@ Une PWA mobile en français pour enregistrer et vérifier une collection personn
 
 - Deux modes de scan ISBN par caméra : **Vérifier** et **Enregistrer**.
 - Retour sonore grave si le livre est déjà possédé, deux notes montantes sinon.
-- Comparaison de l’ISBN exact dans **Open Library**, **Google Books** et **Inventaire** pour éviter d’associer le mauvais livre.
+- Recherche ISBN dans les notices complètes **BnF**, **Open Library**, **Google Books** et **Inventaire**, avec recherche secondaire dans Crossref et la bibliothèque nationale du Japon.
+- Résumé éditeur français et rôles des contributeurs lus dans les notices BnF. Les traducteurs ne sont pas présentés comme auteurs.
+- Enrichissement par titre complet et auteur, sans confondre des sous-titres ou des numéros de tome différents. Aucun catalogue de livres codés en dur.
 - Traduction automatique en français du résumé avec **MyMemory** lorsqu’une version française n’est pas disponible.
 - Catégories enrichies (romance, dark romance, fantasy, thriller, manga, etc.) à partir des sujets, du titre et du résumé.
 - Confirmation et modification du titre, des auteurs, catégories, résumé, couverture, date et pagination avant sauvegarde.
 - Actualisation d’une fiche existante avec prévisualisation avant remplacement des informations.
 - Bibliothèque locale disponible hors ligne, recherche, filtres par catégorie et prévention des ISBN en double.
 - Liste d’envies avec passage en un geste vers la bibliothèque.
-- Ajout manuel, modification, suppression, export et import JSON.
+- Ajout manuel, modification, suppression et export JSON. L’import affiche une prévisualisation et conserve par défaut les fiches actuelles ; le remplacement nécessite un choix explicite.
 - Manifest, service worker, icônes iOS et Android, raccourcis PWA et cache des couvertures déjà consultées.
 
 ## Tester sur Windows
@@ -39,7 +41,7 @@ Ne double-cliquez pas sur `index.html` : la caméra et le service worker exigent
 3. **Vérifier** : rescanner l’ISBN doit produire le son grave et « Vous l’avez déjà ».
 4. **Nouveau livre** : un autre ISBN doit produire deux notes montantes.
 5. **Hors ligne** : après une première visite, coupez le réseau et rechargez ; la bibliothèque, les recherches et les couvertures déjà mises en cache doivent rester accessibles. La récupération d’un nouveau résumé nécessite Internet.
-6. **Sauvegarde** : exportez le JSON, supprimez un livre, puis réimportez le fichier. L’import fusionne les livres par ISBN.
+6. **Sauvegarde** : exportez le JSON puis réimportez le fichier. Vérifiez la prévisualisation : les ISBN existants doivent être conservés par défaut. Testez aussi le choix explicite de remplacement avec une collection de test.
 7. **Liste d’envies** : ajoutez un livre dans les envies puis utilisez « Je possède ce livre ».
 8. **Actualisation** : ouvrez une fiche, touchez « Actualiser les informations », vérifiez la proposition puis sauvegardez.
 9. **ISBN inconnu** : saisissez un ISBN valide mais absent des catalogues ; l’app doit laisser les champs vides plutôt que proposer un autre livre.
@@ -125,4 +127,6 @@ Le lecteur utilise d’abord l’API native `BarcodeDetector` lorsqu’elle pren
 - [MyMemory Translation API](https://mymemory.translated.net/doc/spec.php)
 - [Documentation WebKit sur les apps d’écran d’accueil](https://webkit.org/blog/17333/webkit-features-in-safari-26-0/) et [la politique de stockage](https://webkit.org/blog/14403/updates-to-storage-policy/)
 
-Projet personnel sans compte ni publicité. Les données bibliographiques restent soumises aux conditions des catalogues interrogés.
+Projet personnel sans compte ni publicité. Les données bibliographiques restent soumises aux conditions des catalogues interrogés. Les catalogues reçoivent les ISBN ou les recherches titre/auteur ; MyMemory reçoit le résumé à traduire. La bibliothèque sauvegardée n’est pas envoyée à ces services.
+
+Les tests automatisés couvrent également les annulations de recherche/caméra, les imports atomiques, les collisions d’ISBN et les images opaques hors ligne. GitHub exécute ces tests avant de publier. Les tests physiques sur Safari iPhone (caméra, son, reprise depuis l’arrière-plan et stockage après fermeture) restent nécessaires.
