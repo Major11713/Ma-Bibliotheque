@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { normaliseIsbn } from '../isbn.js';
+import { findBookMatches, attachIsbnProposal } from '../identity.js';
 
 function appContext(lookupBook, getBook=async()=>null) {
   const elements=new Map();
@@ -13,7 +14,7 @@ function appContext(lookupBook, getBook=async()=>null) {
     return elements.get(id);
   };
   const context=vm.createContext({document:{getElementById:element,querySelectorAll:()=>[],body:{append(){}},createElement:()=>({remove(){}})},navigator:{onLine:true},getBook,getSetting:async()=>'',stopScanner:()=>{},
-    lookupBook,normaliseIsbn,setTimeout:()=>0,console});
+    lookupBook,normaliseIsbn,findBookMatches,attachIsbnProposal,getAllBooks:async()=>[],setTimeout:()=>0,console});
   const source=fs.readFileSync(new URL('../app.js',import.meta.url),'utf8')
     .replace(/^import .*;\r?\n/gm,'').replaceAll('export ','').replace(/\binit\(\);\s*$/,'');
   vm.runInContext(source,context);
@@ -65,6 +66,34 @@ function scannerContext(native, acquire, reader) {
   vm.runInContext(fs.readFileSync(new URL('../scanner.js',import.meta.url),'utf8').replaceAll('export ',''),context);
   return {context,loops:()=>loops};
 }
+
+test('le scan vérifie les fiches manuelles avant de déclarer un nouveau livre',async()=>{
+  const fresh={isbn:'9782755640427',title:'Glitter Girl',authors:['CJ Ronnie']};
+  const manual={isbn:'manuel-qa',title:'Glitter Girl',authors:['C. J. Ronnie'],status:'owned'};
+  const {context,element}=appContext(async()=>fresh);
+  context.getAllBooks=async()=>[manual];
+  context.playFeedback=async()=>{};
+  let prompted=false,seen='';
+  context.askDuplicate=async()=>{prompted=true;return {action:'existing',book:manual}};
+  context.openBookDetail=isbn=>{seen=isbn};
+  vm.runInContext("state.books=[{isbn:'manuel-qa'}]; state.scanMode='check';",context);
+  element('scannerDialog').open=true;
+  await context.processScan(fresh.isbn);
+  assert.equal(prompted,true);assert.equal(seen,'manuel-qa');
+  assert.equal(element('scannerDialog').open,false);
+});
+
+test('fermer la recherche annule toute réponse future et ferme le rapprochement sans fusion',()=>{
+  const {context,element}=appContext(async()=>({}));
+  let cancelled=false,choice;
+  context.cancelCoverRecognition=()=>{cancelled=true};
+  vm.runInContext('state.discoveryToken=3;',context);
+  context.closeDialog(element('coverSearchDialog'));
+  assert.equal(vm.runInContext('state.discoveryToken',context),4);assert.equal(cancelled,true);
+  context.askDuplicate({title:'Titre'},[]).then(result=>choice=result);
+  context.closeDialog(element('duplicateDialog'));
+  return Promise.resolve().then(()=>assert.equal(choice.action,'cancel'));
+});
 
 test('fermer pendant la permission caméra arrête le flux qui arrive ensuite',async()=>{
   let deliver;let stopped=false;

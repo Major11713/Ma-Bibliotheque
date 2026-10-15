@@ -1,17 +1,19 @@
 {
   "name": "ma-bibliotheque-pwa",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "description": "PWA personnelle et hors ligne pour gérer une collection de livres.",
   "scripts": {
     "vendor": "node scripts/copy-vendor.mjs",
     "serve": "npx --yes serve . -l 4173",
-    "check": "node --check app.js && node --check db.js && node --check api.js && node --check enrichment.js && node --check bnf.js && node --check isbn.js && node --check backup.js && node --check scanner.js && node --check sw.js && node --test tests/*.test.mjs"
+    "check": "node --check app.js && node --check db.js && node --check api.js && node --check enrichment.js && node --check bnf.js && node --check isbn.js && node --check backup.js && node --check identity.js && node --check cover-search.js && node --check scanner.js && node --check sw.js && node --test tests/*.test.mjs"
   },
   "dependencies": {
+    "@tesseract.js-data/fra": "1.0.0",
     "@zxing/browser": "0.2.1",
-    "@zxing/library": "0.23.0"
+    "@zxing/library": "0.23.0",
+    "tesseract.js": "6.0.1"
   },
   "engines": {
     "node": ">=20"

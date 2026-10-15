@@ -3,6 +3,8 @@ import { normaliseIsbn } from './isbn.js';
 import { validateBackup } from './backup.js';
 import { lookupBook } from './api.js';
 import { startScanner, stopScanner, toggleTorch } from './scanner.js';
+import { findBookMatches, attachIsbnProposal } from './identity.js';
+import { readCoverPhoto, cancelCoverRecognition, coverTextQuery, searchCoverBooks } from './cover-search.js';
 
 const state = {
   books: [],
@@ -22,6 +24,11 @@ const state = {
   audio: null,
   formDataSource: 'Saisie manuelle',
   formDescriptionTranslated: false,
+  duplicateResolve: null,
+  discoveryToken: 0,
+  discoveryController: null,
+  discoveryBooks: [],
+  formSaving: false,
 };
 
 const el = Object.fromEntries([
@@ -35,6 +42,10 @@ const el = Object.fromEntries([
   'deleteBookButton', 'toggleBookStatus', 'editBookButton', 'refreshBookButton', 'settingsButton', 'settingsDialog',
   'exportButton', 'importButton', 'importFile', 'googleApiKey', 'saveApiKeyButton', 'storageStatus',
   'importPreviewDialog', 'importSummary', 'importConflicts', 'confirmImportButton',
+  'openCoverSearch', 'openTitleSearch', 'coverSearchDialog', 'coverPhotoInput', 'coverGalleryInput',
+  'coverProgress', 'coverOcrText', 'coverTextDetails', 'coverSearchForm', 'coverQuery', 'coverSearchSubmit',
+  'coverScanFallback', 'coverResults', 'coverManualFallback', 'duplicateDialog', 'duplicateMessage',
+  'duplicateCandidates', 'duplicateDifferent', 'buyBookLink',
   'toastRegion', 'networkBanner', 'manualAddButton', 'welcomeDate'
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -135,6 +146,8 @@ function showDialog(dialog) {
 }
 
 function closeDialog(dialog) {
+  if (dialog === el.coverSearchDialog) cancelDiscovery();
+  if (dialog === el.duplicateDialog) resolveDuplicate({ action: 'cancel' });
   if (dialog === el.bookFormDialog) { state.lookupToken++; setFormLoading(false); }
   if (dialog === el.bookDetailDialog) state.detailToken++;
   if (dialog === el.importPreviewDialog) state.pendingImport = null;
@@ -255,6 +268,26 @@ async function processScan(rawValue) {
     el.scannerMessage.textContent = `ISBN ${isbn} détecté`;
     const existing = await getBook(isbn);
     if (!active()) return;
+    // L'ISBN est absent, mais une fiche manuelle ou une autre édition peut exister.
+    if (!existing && state.books.length && navigator.onLine) {
+      el.scannerMessage.textContent = 'Vérification du titre et de l’auteur…';
+      const fresh = await lookupBook(isbn, await getSetting('googleApiKey'));
+      if (!active()) return;
+      const matches = findBookMatches(fresh, await getAllBooks());
+      if (!active()) return;
+      if (matches.length) {
+        await playFeedback(false);
+        const choice = await askDuplicate(fresh, matches);
+        if (!active()) return;
+        if (choice.action === 'cancel') { await startCamera(); return; }
+        if (choice.action === 'existing') {
+          await closeScanner(); openBookDetail(choice.book.isbn); return;
+        }
+        if (choice.action === 'attach') {
+          await closeScanner(); openAttachForm(choice.book, fresh); return;
+        }
+      }
+    }
     if (state.scanMode === 'add') {
       await playFeedback(!existing);
       if (!active()) return;
@@ -271,7 +304,7 @@ async function processScan(rawValue) {
       showScanResult(false, 'Vous l’avez déjà', `${existing.title || 'Ce livre'} est bien dans votre bibliothèque.`,
         [['Voir le livre', 'details'], ['Scanner un autre', 'rescan']], isbn);
     } else {
-      showScanResult(true, 'Nouveau livre', existing?.status === 'wishlist' ? 'Vous ne le possédez pas encore, mais il est dans vos envies.' : 'Cet ISBN n’est pas dans votre bibliothèque.',
+      showScanResult(true, 'ISBN non possédé', existing?.status === 'wishlist' ? 'Vous ne le possédez pas encore, mais il est dans vos envies.' : 'Cet ISBN n’est pas dans votre bibliothèque. Les fiches sans ISBN ne peuvent être comparées que si le catalogue fournit un titre et un auteur ; vérifiez-les en cas de doute.',
         existing ? [['Voir mon envie', 'details'], ['Je l’ai acheté', 'moveowned'], ['Scanner un autre', 'rescan']]
           : [['Enregistrer', 'add'], ['Liste d’envies', 'wishlist'], ['Scanner un autre', 'rescan']], isbn);
     }
@@ -358,7 +391,7 @@ async function openManualForm() {
   setTimeout(() => el.formIsbn.focus(), 120);
 }
 
-async function beginAddByIsbn(isbn, status = 'owned') {
+async function beginAddByIsbn(isbn, status = 'owned', discovery = null) {
   const initialToken = state.lookupToken;
   const session = state.scanSession;
   const scannerWasOpen = el.scannerDialog.open;
@@ -381,7 +414,8 @@ async function beginAddByIsbn(isbn, status = 'owned') {
   showDialog(el.bookFormDialog);
   try {
     const apiKey = await getSetting('googleApiKey');
-    const book = await lookupBook(isbn, apiKey);
+    const result = await lookupBook(isbn, apiKey);
+    const book = discovery ? { ...discovery, ...result, title: result.title || discovery.title, authors: result.authors?.length ? result.authors : discovery.authors } : result;
     if (token !== state.lookupToken || !el.bookFormDialog.open) return;
     fillBookForm({ ...book, status }, { preserveIsbn: true });
     if (!book.title) toast('Livre introuvable : complétez les informations à la main.', true);
@@ -398,6 +432,7 @@ async function beginAddByIsbn(isbn, status = 'owned') {
 
 async function submitBookForm(event) {
   event.preventDefault();
+  if (state.formSaving) return;
   if (!el.metadataLoading.hidden) return;
   if (!el.formBookTitle.value.trim()) { toast('Indiquez un titre pour ce livre.', true); return; }
   if (el.formCover.value.trim() && !/^https?:\/\//i.test(el.formCover.value.trim())) {
@@ -436,13 +471,23 @@ async function submitBookForm(event) {
     updatedAt: new Date().toISOString(),
   };
   try {
+    state.formSaving = true;
+    const token = state.lookupToken;
+    const matches = findBookMatches(book, await getAllBooks(), originalIsbn);
+    if (token !== state.lookupToken || !el.bookFormDialog.open) return;
+    if (matches.length) {
+      const choice = await askDuplicate(book, matches);
+      if (token !== state.lookupToken || !el.bookFormDialog.open || choice.action === 'cancel') return;
+      if (choice.action === 'existing') { closeDialog(el.bookFormDialog); openBookDetail(choice.book.isbn); return; }
+      if (choice.action === 'attach') { openAttachForm(choice.book, book); return; }
+    }
     await saveBook(book, originalIsbn);
     closeDialog(el.bookFormDialog);
     await refreshBooks();
     toast(book.status === 'owned' ? 'Livre ajouté à votre bibliothèque.' : 'Livre ajouté à vos envies.');
   } catch (error) {
     toast(`Impossible de sauvegarder : ${error.message}`, true);
-  }
+  } finally { state.formSaving = false; }
 }
 
 function openBookDetail(isbn) {
@@ -468,6 +513,7 @@ function openBookDetail(isbn) {
       <p class="detail-isbn">${book.isbn.startsWith('manuel-') ? 'Ajout manuel sans ISBN' : `ISBN ${escapeHtml(book.isbn)}`}</p>
     </div>`;
   el.toggleBookStatus.textContent = book.status === 'owned' ? 'Mettre dans mes envies' : 'Je possède ce livre';
+  el.buyBookLink.href = purchaseSearchUrl(book);
   showDialog(el.bookDetailDialog);
 }
 
@@ -642,7 +688,154 @@ async function moveWishlistToOwned(isbn) {
   } catch (error) { toast(`Déplacement impossible : ${error.message}`, true); }
 }
 
+function purchaseSearchUrl(book) {
+  const query = book.isbn && !book.isbn.startsWith('manuel-') ? book.isbn : [book.title, ...(book.authors || []), 'livre'].join(' ');
+  return 'https://www.google.com/search?' + new URLSearchParams({ q: query, tbm: 'shop' });
+}
+
+function resolveDuplicate(choice) {
+  const resolve = state.duplicateResolve;
+  state.duplicateResolve = null;
+  if (el.duplicateDialog.open) el.duplicateDialog.close();
+  if (resolve) resolve(choice);
+}
+
+function askDuplicate(proposal, matches) {
+  resolveDuplicate({ action: 'cancel' });
+  el.duplicateMessage.textContent = `« ${proposal.title} » ressemble à une ou plusieurs fiches déjà enregistrées.`;
+  el.duplicateCandidates.innerHTML = matches.map(({ book, reason }, index) => {
+    const attach = book.isbn.startsWith('manuel-') && proposal.isbn && !proposal.isbn.startsWith('manuel-');
+    return `<article class="discovery-card"><h3>${escapeHtml(book.title)}</h3><p>${escapeHtml((book.authors || []).join(', ') || 'Auteur non renseigné')}<br>${escapeHtml(reason)}<br>${book.status === 'owned' ? 'Déjà possédé' : 'Dans vos envies'} · ${book.isbn.startsWith('manuel-') ? 'Fiche sans ISBN' : `ISBN ${escapeHtml(book.isbn)}`}</p><div class="button-row"><button class="button secondary" data-duplicate-index="${index}" data-duplicate-action="existing" type="button">C’est ce livre : voir ma fiche</button>${attach ? `<button class="button primary" data-duplicate-index="${index}" data-duplicate-action="attach" type="button">Rattacher l’ISBN à cette fiche</button>` : ''}</div></article>`;
+  }).join('');
+  state.duplicateMatches = matches;
+  showDialog(el.duplicateDialog);
+  return new Promise(resolve => { state.duplicateResolve = resolve; });
+}
+
+function openAttachForm(existing, fresh) {
+  clearBookForm();
+  el.editingOriginalIsbn.value = existing.isbn;
+  el.formTitle.textContent = 'Rattacher l’ISBN sans doublon';
+  el.formEyebrow.textContent = 'Votre fiche et vos corrections sont conservées';
+  fillBookForm(attachIsbnProposal(existing, fresh));
+  showDialog(el.bookFormDialog);
+}
+
+function cancelDiscovery() {
+  state.discoveryToken++;
+  state.discoveryController?.abort();
+  state.discoveryController = null;
+  cancelCoverRecognition();
+  el.coverPhotoInput.disabled = false;
+  el.coverGalleryInput.disabled = false;
+  el.coverSearchSubmit.disabled = false;
+}
+
+function openDiscovery() {
+  cancelDiscovery();
+  state.discoveryBooks = [];
+  el.coverResults.innerHTML = '';
+  el.coverQuery.value = '';
+  el.coverProgress.textContent = '';
+  el.coverTextDetails.hidden = true;
+  el.coverPhotoInput.value = '';
+  el.coverGalleryInput.value = '';
+  showDialog(el.coverSearchDialog);
+}
+
+async function handleCoverPhoto(file) {
+  if (!file) return;
+  cancelDiscovery();
+  el.coverPhotoInput.value = '';
+  el.coverGalleryInput.value = '';
+  const token = state.discoveryToken;
+  el.coverResults.innerHTML = '';
+  el.coverTextDetails.hidden = true;
+  el.coverPhotoInput.disabled = true;
+  el.coverGalleryInput.disabled = true;
+  el.coverSearchSubmit.disabled = true;
+  el.coverProgress.textContent = 'Lecture de la couverture sur cet appareil… La première utilisation charge le moteur gratuit.';
+  try {
+    const text = await readCoverPhoto(file, message => {
+      if (token === state.discoveryToken && message.status === 'recognizing text') el.coverProgress.textContent = `Lecture du texte : ${Math.round(message.progress * 100)} %`;
+    });
+    if (token !== state.discoveryToken || !el.coverSearchDialog.open) return;
+    if (text === null) { el.coverProgress.textContent = 'Lecture interrompue ou trop longue. Utilisez le scan du code-barres.'; return; }
+    el.coverOcrText.textContent = text;
+    el.coverTextDetails.hidden = !text;
+    el.coverQuery.value = coverTextQuery(text);
+    el.coverProgress.textContent = text ? 'Texte proposé : corrigez le titre ou l’auteur si nécessaire, puis recherchez.' : 'Texte illisible. Utilisez le scan du code-barres.';
+    if (el.coverQuery.value) await searchDiscovery();
+  } catch {
+    if (token === state.discoveryToken) el.coverProgress.textContent = 'Cette photo n’a pas pu être lue. Reprenez-la en bonne lumière ou scannez le code-barres.';
+  } finally {
+    if (token === state.discoveryToken) {
+      el.coverPhotoInput.disabled = false; el.coverGalleryInput.disabled = false; el.coverSearchSubmit.disabled = false;
+      el.coverPhotoInput.value = ''; el.coverGalleryInput.value = '';
+    }
+  }
+}
+
+async function searchDiscovery() {
+  const query = el.coverQuery.value.trim();
+  if (query.length < 2) return;
+  state.discoveryController?.abort();
+  const token = ++state.discoveryToken;
+  const controller = new AbortController();
+  state.discoveryController = controller;
+  const timer = setTimeout(() => controller.abort(), 15000);
+  el.coverSearchSubmit.disabled = true;
+  el.coverResults.innerHTML = '';
+  el.coverProgress.textContent = 'Recherche du titre et de l’auteur…';
+  try {
+    const normal = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const local = (await getAllBooks()).filter(book => normal(query).includes(normal(book.title)) || normal([book.title, ...(book.authors || [])].join(' ')).includes(normal(query)));
+    const remote = navigator.onLine ? await searchCoverBooks(query, await getSetting('googleApiKey'), { signal: controller.signal }) : { books: [], unavailable: true };
+    if (token !== state.discoveryToken || !el.coverSearchDialog.open) return;
+    const localIds = new Set(local.map(book => book.isbn));
+    state.discoveryBooks = [...local.map(book => ({ ...book, local: true })), ...remote.books.filter(book => !book.isbn || !localIds.has(book.isbn))];
+    el.coverResults.innerHTML = state.discoveryBooks.map((book, index) => `<article class="discovery-card"><h3>${escapeHtml(book.title)}</h3><p>${escapeHtml((book.authors || []).join(', ') || 'Auteur non renseigné')}<br>${escapeHtml(book.publishedDate || '')}${book.local ? `<br>${book.status === 'owned' ? 'Déjà dans votre bibliothèque' : 'Déjà dans vos envies'}` : `<br>${escapeHtml(book.source)}${book.isbn ? `<br>ISBN ${escapeHtml(book.isbn)}` : '<br>Édition sans ISBN identifié'}`}</p><div class="button-row"><button class="button primary" type="button" data-cover-index="${index}">${book.local ? 'Voir ma fiche existante' : 'Choisir et vérifier ce livre'}</button><a class="button secondary" href="${escapeHtml(purchaseSearchUrl(book))}" target="_blank" rel="noopener noreferrer">Où l’acheter ↗</a></div></article>`).join('');
+    el.coverProgress.textContent = `${state.discoveryBooks.length} proposition(s). ${remote.unavailable ? 'Catalogues indisponibles : seuls les résultats locaux sont affichés. Utilisez le scan du code-barres si nécessaire.' : 'Confirmez le bon titre, l’auteur et le tome ; sinon utilisez le scan du code-barres.'}`;
+  } catch {
+    if (token === state.discoveryToken) el.coverProgress.textContent = 'Recherche interrompue. Réessayez ou scannez le code-barres.';
+  } finally {
+    clearTimeout(timer);
+    if (token === state.discoveryToken) { el.coverSearchSubmit.disabled = false; el.coverPhotoInput.disabled = false; el.coverGalleryInput.disabled = false; }
+  }
+}
+
+async function chooseDiscoveredBook(index) {
+  const book = state.discoveryBooks[index];
+  if (!book) return;
+  closeDialog(el.coverSearchDialog);
+  if (book.local) { openBookDetail(book.isbn); return; }
+  if (book.isbn) { await beginAddByIsbn(book.isbn, 'owned', book); return; }
+  openManualForm();
+  fillBookForm({ ...book, status: 'owned' });
+  el.formSource.textContent = 'Proposition issue de la recherche : confirmez le titre, l’auteur et le tome. Sans ISBN, l’édition reste à vérifier.';
+}
+
 function bindEvents() {
+  el.openCoverSearch.addEventListener('click', openDiscovery);
+  el.openTitleSearch.addEventListener('click', openDiscovery);
+  el.coverPhotoInput.addEventListener('change', () => handleCoverPhoto(el.coverPhotoInput.files?.[0]));
+  el.coverGalleryInput.addEventListener('change', () => handleCoverPhoto(el.coverGalleryInput.files?.[0]));
+  el.coverSearchForm.addEventListener('submit', event => { event.preventDefault(); searchDiscovery(); });
+  el.coverScanFallback.addEventListener('click', () => { closeDialog(el.coverSearchDialog); openScanner('check'); });
+  el.coverManualFallback.addEventListener('click', () => { closeDialog(el.coverSearchDialog); openManualForm(); });
+  el.coverSearchDialog.addEventListener('cancel', cancelDiscovery);
+  el.coverResults.addEventListener('click', event => {
+    const button = event.target.closest('[data-cover-index]');
+    if (button) chooseDiscoveredBook(Number(button.dataset.coverIndex)).catch(error => toast(error.message, true));
+  });
+  el.duplicateDialog.addEventListener('cancel', event => { event.preventDefault(); resolveDuplicate({ action: 'cancel' }); });
+  el.duplicateDifferent.addEventListener('click', () => resolveDuplicate({ action: 'different' }));
+  el.duplicateCandidates.addEventListener('click', event => {
+    const button = event.target.closest('[data-duplicate-index]');
+    if (!button) return;
+    const book = state.duplicateMatches?.[Number(button.dataset.duplicateIndex)]?.book;
+    if (book) resolveDuplicate({ action: button.dataset.duplicateAction, book });
+  });
   document.querySelectorAll('[data-open-scan]').forEach((button) => button.addEventListener('click', () => openScanner(button.dataset.openScan)));
   document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => setView(button.dataset.nav)));
   document.querySelectorAll('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => closeDialog(document.getElementById(button.dataset.closeDialog))));

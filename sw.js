@@ -1,12 +1,12 @@
-const VERSION = 'ma-bibliotheque-v1.3.0';
+const VERSION = 'ma-bibliotheque-v1.4.0';
 const RUNTIME = `${VERSION}-runtime`;
 const COVERS = 'ma-bibliotheque-covers-v1';
 
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css?v=1.3.0',
-  './app.js?v=1.3.0',
+  './styles.css?v=1.4.0',
+  './app.js?v=1.4.0',
   './db.js',
   './isbn.js',
   './backup.js',
@@ -14,8 +14,11 @@ const APP_SHELL = [
   './bnf.js',
   './enrichment.js',
   './scanner.js',
+  './identity.js',
+  './cover-search.js',
+  './vendor/ocr/tesseract.min.js',
   './manifest.webmanifest',
-  './vendor/zxing-browser.min.js?v=1.3.0',
+  './vendor/zxing-browser.min.js?v=1.4.0',
   './icons/favicon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',

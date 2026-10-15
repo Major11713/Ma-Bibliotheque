@@ -1,5 +1,19 @@
 # Ma Bibliothèque
 
+## Version 1.4.0 : photo, rapprochement et achat
+
+« Photographier une couverture » prend une photo sur iPhone ; « Choisir une photo » accepte une image existante. Tesseract lit le texte français sur l'appareil sans transmettre ni conserver la photo. Seuls les mots recherchés sont envoyés à Google Books, Open Library et la BnF. Polices fantaisie, reflets et texte déformé peuvent faire échouer la lecture : le scan du code-barres reste le secours. Pas de saisie ISBN dans le scanner ; l'ISBN reste éditable dans les fiches.
+
+Les résultats sont des propositions à confirmer, jamais des ajouts automatiques. Le rapprochement compare titre, auteur et tome, malgré accents/casse/ponctuation. Les auteurs contradictoires et tomes explicitement différents sont exclus. Auteur absent ou sous-titre différent : avertissement prudent, aucune fusion automatique.
+
+Un ISBN peut être rattaché explicitement à une fiche sans ISBN. La sauvegarde atomique conserve ses corrections, date d'ajout et statut. Une fiche ayant déjà un ISBN n'est pas fusionnée ; l'utilisateur peut confirmer qu'il s'agit d'une autre édition.
+
+« Trouver où l'acheter » ouvre Google Shopping avec l'ISBN, ou le titre/auteur. Aucun paiement, affiliation, prix ou stock garanti dans l'application. L'utilisateur termine l'achat chez le vendeur.
+
+La collection et sa recherche restent hors ligne. Le moteur photo peut fonctionner après un premier chargement tant que Safari conserve ses ressources ; catalogues et achat nécessitent Internet. Sans titre fourni par les catalogues, un ISBN ne peut pas être comparé à une fiche manuelle : le résultat rappelle cette limite.
+
+Après changement des dépendances : `npm ci`, `npm run vendor`, `npm run check`, puis `node scripts/package-site.mjs`. Les dépendances OCR sont gratuites et embarquées.
+
 Une PWA mobile en français pour enregistrer et vérifier une collection personnelle de livres sur iPhone. Elle fonctionne sans compte, sans serveur applicatif et sans abonnement : la collection reste dans `IndexedDB`, sur l’appareil.
 
 ## Ce qui est inclus

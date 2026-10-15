@@ -1,4 +1,15 @@
-# Vérification de la version 1.3.0
+# Vérification de la version 1.4.0
+
+## Nouveaux parcours à vérifier sur iPhone réel
+
+Contrôles effectués sur ordinateur : 44 tests automatisés réussis ; lecture réelle du titre/auteur d'une image synthétique par le moteur OCR ; création d'une fiche sans ISBN puis rattachement explicite avec une seule fiche restante, résumé et statut « envie » conservés ; recherche locale et lien d'achat par ISBN vérifiés dans l'interface. La prise de photo matérielle, les sons et le scanner sur Safari iPhone ne sont pas validés par ces tests. Le réglage de dimensions du navigateur de test n'a pas effectivement réduit sa largeur : la validation visuelle iPhone reste donc à faire.
+
+1. Photographier une couverture nette, vérifier/corriger les mots reconnus puis choisir le bon titre/auteur/tome. Aucune sauvegarde sans confirmation.
+2. Photo illisible/refusée : « Scanner le code-barres à la place », sans saisie ISBN dans ce parcours.
+3. Fiche manuelle sans ISBN puis scan du même livre : avertissement de ressemblance, rattachement explicite et sauvegarde. Une seule fiche reste, avec corrections et statut initial.
+4. Tomes différents, homonymes d'auteurs différents et autre édition : aucune fusion silencieuse.
+5. Achat : le lien ouvre une recherche externe, sans envoyer la collection et sans paiement dans l'application.
+6. Fermer pendant OCR/recherche puis rouvrir : aucune réponse ancienne ne remplit le nouveau dialogue.
 
 Le moteur utilise maintenant les notices BnF INTERMARC, notamment les résumés éditeur 330/830, le titre original 145 et les rôles 0070 (auteur) / 0680 (traducteur). La correspondance ISBN est vérifiée avant toute fusion.
 

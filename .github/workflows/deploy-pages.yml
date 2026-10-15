@@ -35,7 +35,7 @@ jobs:
       - name: Vérifier les régressions avant publication
         run: npm run check
       - name: Préparer les fichiers de l’application
-        run: node scripts/package-site.mjs
+        run: npm run vendor && node scripts/package-site.mjs
       - name: Préparer le site
         uses: actions/upload-pages-artifact@v4
         with:

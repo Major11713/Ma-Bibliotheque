@@ -4,6 +4,16 @@ import 'fake-indexeddb/auto';
 import { saveBook, getBook, getAllBooks, importBooks, removeBook, setSetting, getSetting } from '../db.js';
 import { validateBackup } from '../backup.js';
 import { normaliseIsbn } from '../isbn.js';
+import { attachIsbnProposal } from '../identity.js';
+
+test('rattachement atomique remplace la clé manuelle sans doublon ni perte de statut', async () => {
+  const manual = {isbn:'manuel-attach',title:'Fiche personnelle',authors:['Auteur'],status:'wishlist',description:'Correction'};
+  await saveBook(manual);
+  await saveBook(attachIsbnProposal(manual,{isbn:'9780306406157',title:'Titre catalogue'}),manual.isbn);
+  assert.equal(await getBook(manual.isbn),undefined);
+  const linked=await getBook('9780306406157');
+  assert.equal(linked.description,'Correction');assert.equal(linked.status,'wishlist');
+});
 
 test('normalise les ISBN-10 et rejette les clés invalides', () => {
   assert.equal(normaliseIsbn('0-14-032872-6'), '9780140328721');
