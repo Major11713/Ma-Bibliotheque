@@ -1,4 +1,3 @@
-
 /*
  * Ma Bibliothèque
  * Analyse des notices BnF au format INTERMARC.
@@ -85,12 +84,13 @@ export function parseBnfRecord(xml, isbn) {
       })
       .filter(Boolean);
 
-    // Résumés authentiques.
+    // Résumés authentiques (seuil abaissé : un résumé éditeur
+    // court mais réel ne doit pas être écarté).
     const summaries = [
       ...values('330', 'a'),
       ...values('830', 'a')
     ].filter(value =>
-      value.length >= 60 &&
+      value.length >= 20 &&
       !/^(collection|bibliographie|isbn|ean|code à barres)/i.test(value)
     );
 
