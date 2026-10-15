@@ -1,0 +1,13 @@
+<!doctype html><html lang="fr"><meta charset="utf-8"><title>Test collection de 2 500 livres</title>
+<h1>Données synthétiques — vérification locale uniquement</h1><p>Ajoute 2 500 fiches de test dans la bibliothèque de ce serveur local, pas sur le site public.</p>
+<button id="seed">Créer les 2 500 livres de test</button><p id="result" role="status"></p><a href="../">Ouvrir la bibliothèque locale</a>
+<script type="module">
+import {importBooks} from '../db.js';
+const button=document.getElementById('seed');
+button.disabled=!['127.0.0.1','localhost'].includes(location.hostname);
+button.onclick=async()=>{
+ button.disabled=true;
+ const books=Array.from({length:2500},(_,i)=>({isbn:`manuel-volume-qa-${i}`,title:`Livre de test ${i}`,authors:[i%2?'Victor Hugo':'Émile Zola'],categories:[['Fantasy','Romance','Histoire'][i%3]],description:'Fiche synthétique pour test de volume.',status:'owned',addedAt:new Date(Date.UTC(2020,0,1+i)).toISOString()}));
+ try{const report=await importBooks(books);document.getElementById('result').textContent=`${report.added} livres ajoutés, ${report.kept} conservés.`;}catch(e){document.getElementById('result').textContent=e.message;button.disabled=false;}
+};
+</script></html>

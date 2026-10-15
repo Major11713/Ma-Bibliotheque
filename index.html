@@ -12,7 +12,7 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <link rel="icon" href="./icons/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=1.4.0" />
+    <link rel="stylesheet" href="./styles.css?v=1.5.0" />
     <title>Ma Bibliothèque</title>
   </head>
   <body>
@@ -69,8 +69,12 @@
               <button id="clearSearch" type="button" aria-label="Effacer la recherche" hidden>×</button>
             </label>
             <div class="filter-row" id="categoryFilters" aria-label="Filtrer par catégorie"></div>
+            <label class="sort-control" for="librarySort">Trier mes livres
+              <select id="librarySort"><option value="title">Titre : A → Z</option><option value="author">Auteur : A → Z</option><option value="genre">Genre : A → Z, puis titre</option><option value="recent">Derniers ajouts</option></select>
+            </label>
             <p class="results-note" id="resultsNote" aria-live="polite"></p>
             <div class="book-grid" id="bookGrid"></div>
+            <button class="button secondary full load-more" id="loadMoreBooks" type="button" hidden>Afficher plus de livres</button>
             <div class="empty-state" id="emptyLibrary">
               <div class="empty-illustration" aria-hidden="true"><span></span><span></span><span></span></div>
               <h3>Votre première étagère vous attend</h3>
@@ -91,7 +95,12 @@
             <span class="sr-only">Rechercher dans les envies</span>
             <input id="wishSearchInput" type="search" placeholder="Rechercher dans mes envies…" />
           </label>
+          <label class="sort-control" for="wishSort">Trier mes envies
+            <select id="wishSort"><option value="title">Titre : A → Z</option><option value="author">Auteur : A → Z</option><option value="genre">Genre : A → Z, puis titre</option><option value="recent">Derniers ajouts</option></select>
+          </label>
+          <p class="results-note" id="wishResultsNote" aria-live="polite"></p>
           <div class="book-list" id="wishList"></div>
+          <button class="button secondary full load-more" id="loadMoreWishes" type="button" hidden>Afficher plus d’envies</button>
           <div class="empty-state" id="emptyWishes">
             <div class="heart-mark" aria-hidden="true">♡</div>
             <h3>Pas encore d’envie</h3>
@@ -231,7 +240,7 @@
           <ol><li>Ouvrez le site dans Safari.</li><li>Touchez <strong>Partager</strong>.</li><li>Choisissez <strong>Sur l’écran d’accueil</strong>, puis <strong>Ajouter</strong>.</li></ol>
         </div>
         <div class="storage-status" id="storageStatus"></div>
-        <p class="version-line">Ma Bibliothèque · version 1.4.0 · sans compte, sans publicité</p>
+        <p class="version-line">Ma Bibliothèque · version 1.5.0 · sans compte, sans publicité</p>
       </section>
     </dialog>
 
@@ -278,8 +287,8 @@
     </dialog>
     <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
 
-    <script src="./vendor/zxing-browser.min.js?v=1.4.0"></script>
+    <script src="./vendor/zxing-browser.min.js?v=1.5.0"></script>
     <script src="./vendor/ocr/tesseract.min.js"></script>
-    <script type="module" src="./app.js?v=1.4.0"></script>
+    <script type="module" src="./app.js?v=1.5.0"></script>
   </body>
 </html>

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { normaliseIsbn } from '../isbn.js';
 import { findBookMatches, attachIsbnProposal } from '../identity.js';
+import { BOOK_BATCH_SIZE, SORT_MODES, bookGenre, collectionPage } from '../library-order.js';
 
 function appContext(lookupBook, getBook=async()=>null) {
   const elements=new Map();
@@ -14,7 +15,7 @@ function appContext(lookupBook, getBook=async()=>null) {
     return elements.get(id);
   };
   const context=vm.createContext({document:{getElementById:element,querySelectorAll:()=>[],body:{append(){}},createElement:()=>({remove(){}})},navigator:{onLine:true},getBook,getSetting:async()=>'',stopScanner:()=>{},
-    lookupBook,normaliseIsbn,findBookMatches,attachIsbnProposal,getAllBooks:async()=>[],setTimeout:()=>0,console});
+    lookupBook,normaliseIsbn,findBookMatches,attachIsbnProposal,BOOK_BATCH_SIZE,SORT_MODES,bookGenre,collectionPage,getAllBooks:async()=>[],setTimeout:()=>0,console});
   const source=fs.readFileSync(new URL('../app.js',import.meta.url),'utf8')
     .replace(/^import .*;\r?\n/gm,'').replaceAll('export ','').replace(/\binit\(\);\s*$/,'');
   vm.runInContext(source,context);

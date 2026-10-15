@@ -5,6 +5,7 @@ import { lookupBook } from './api.js';
 import { startScanner, stopScanner, toggleTorch } from './scanner.js';
 import { findBookMatches, attachIsbnProposal } from './identity.js';
 import { readCoverPhoto, cancelCoverRecognition, coverTextQuery, searchCoverBooks } from './cover-search.js';
+import { BOOK_BATCH_SIZE, SORT_MODES, bookGenre, collectionPage } from './library-order.js';
 
 const state = {
   books: [],
@@ -29,6 +30,10 @@ const state = {
   discoveryController: null,
   discoveryBooks: [],
   formSaving: false,
+  sort: 'title',
+  sortTouched: false,
+  libraryLimit: BOOK_BATCH_SIZE,
+  wishLimit: BOOK_BATCH_SIZE,
 };
 
 const el = Object.fromEntries([
@@ -46,6 +51,7 @@ const el = Object.fromEntries([
   'coverProgress', 'coverOcrText', 'coverTextDetails', 'coverSearchForm', 'coverQuery', 'coverSearchSubmit',
   'coverScanFallback', 'coverResults', 'coverManualFallback', 'duplicateDialog', 'duplicateMessage',
   'duplicateCandidates', 'duplicateDifferent', 'buyBookLink',
+  'librarySort', 'wishSort', 'loadMoreBooks', 'loadMoreWishes', 'wishResultsNote',
   'toastRegion', 'networkBanner', 'manualAddButton', 'welcomeDate'
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -68,20 +74,6 @@ function coverMarkup(book, className = '') {
   return `<div class="${className}"><img src="${escapeHtml(book.cover)}" alt="Couverture de ${escapeHtml(book.title)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="cover-fallback" hidden>${escapeHtml(initials(book.title))}</span></div>`;
 }
 
-function normaliseSearch(value) {
-  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-}
-
-function matchesSearch(book, query) {
-  if (!query) return true;
-  const haystack = [book.title, ...(book.authors || []), book.isbn, ...(book.categories || [])].join(' ');
-  return normaliseSearch(haystack).includes(normaliseSearch(query));
-}
-
-function sortedBooks(books) {
-  return [...books].sort((a, b) => String(b.addedAt || '').localeCompare(String(a.addedAt || '')) || a.title.localeCompare(b.title, 'fr'));
-}
-
 function render() {
   const owned = state.books.filter((book) => book.status === 'owned');
   const wishes = state.books.filter((book) => book.status === 'wishlist');
@@ -96,35 +88,56 @@ function render() {
   )).join('');
 
   const query = el.searchInput.value;
-  const visible = sortedBooks(owned).filter((book) => matchesSearch(book, query) && (state.category === 'Toutes' || book.categories?.includes(state.category)));
-  el.bookGrid.innerHTML = visible.map((book) => `
+  const page = collectionPage(owned, { query, category: state.category, sort: state.sort, limit: state.libraryLimit });
+  const visible = page.items;
+  let lastGenre = '';
+  el.bookGrid.innerHTML = visible.map((book) => {
+    const genre = bookGenre(book, state.category);
+    const heading = state.sort === 'genre' && genre !== lastGenre ? `<h3 class="genre-heading">${escapeHtml(genre)}</h3>` : '';
+    lastGenre = genre;
+    return `${heading}
     <button class="book-card" type="button" data-book-isbn="${escapeHtml(book.isbn)}" aria-label="Voir ${escapeHtml(book.title)}">
       ${coverMarkup(book, 'book-cover')}
       <h3>${escapeHtml(book.title || 'Sans titre')}</h3>
       <p>${escapeHtml(formatAuthors(book))}</p>
-      <span class="book-category">${escapeHtml(book.categories?.[0] || 'Non classé')}</span>
-    </button>`).join('');
+      <span class="book-category">${escapeHtml(genre)}</span>
+    </button>`;
+  }).join('');
   el.emptyLibrary.hidden = owned.length > 0 || Boolean(query) || state.category !== 'Toutes';
   el.bookGrid.hidden = visible.length === 0;
-  if (owned.length === 0) el.resultsNote.textContent = '';
-  else if (visible.length === owned.length && !query && state.category === 'Toutes') el.resultsNote.textContent = `${owned.length} livre${owned.length > 1 ? 's' : ''} dans votre bibliothèque`;
-  else el.resultsNote.textContent = `${visible.length} résultat${visible.length > 1 ? 's' : ''}`;
+  el.resultsNote.textContent = owned.length ? `${page.total} livre(s) trouvé(s) · ${visible.length} affiché(s)${page.remaining ? ' — la recherche porte sur toute la collection' : ''}` : '';
+  el.loadMoreBooks.hidden = page.remaining === 0;
+  el.loadMoreBooks.textContent = `Afficher ${Math.min(BOOK_BATCH_SIZE, page.remaining)} livres de plus (${page.remaining} restants)`;
+  el.librarySort.value = state.sort;
+  el.wishSort.value = state.sort;
   el.clearSearch.hidden = !query;
 
   const wishQuery = el.wishSearchInput.value;
-  const visibleWishes = sortedBooks(wishes).filter((book) => matchesSearch(book, wishQuery));
-  el.wishList.innerHTML = visibleWishes.map((book) => `
+  const wishPage = collectionPage(wishes, { status: 'wishlist', query: wishQuery, sort: state.sort, limit: state.wishLimit });
+  const visibleWishes = wishPage.items;
+  lastGenre = '';
+  el.wishList.innerHTML = visibleWishes.map((book) => {
+    const genre = bookGenre(book);
+    const heading = state.sort === 'genre' && genre !== lastGenre ? `<h3 class="genre-heading">${escapeHtml(genre)}</h3>` : '';
+    lastGenre = genre;
+    return `${heading}
     <button class="list-card" type="button" data-book-isbn="${escapeHtml(book.isbn)}">
       ${coverMarkup(book, 'mini-cover')}
       <span><h3>${escapeHtml(book.title || 'Sans titre')}</h3><p>${escapeHtml(formatAuthors(book))}</p></span>
       <b aria-hidden="true">›</b>
-    </button>`).join('');
+    </button>`;
+  }).join('');
+  el.wishResultsNote.textContent = wishes.length ? `${wishPage.total} envie(s) · ${visibleWishes.length} affichée(s)` : '';
+  el.loadMoreWishes.hidden = wishPage.remaining === 0;
+  el.loadMoreWishes.textContent = `Afficher ${Math.min(BOOK_BATCH_SIZE, wishPage.remaining)} envies de plus (${wishPage.remaining} restantes)`;
   el.emptyWishes.hidden = wishes.length > 0 || Boolean(wishQuery);
   el.wishList.hidden = visibleWishes.length === 0;
 }
 
 async function refreshBooks() {
   state.books = await getAllBooks();
+  state.libraryLimit = BOOK_BATCH_SIZE;
+  state.wishLimit = BOOK_BATCH_SIZE;
   render();
 }
 
@@ -816,6 +829,24 @@ async function chooseDiscoveredBook(index) {
 }
 
 function bindEvents() {
+  for (const select of [el.librarySort, el.wishSort]) select.addEventListener('change', async () => {
+    if (!SORT_MODES.includes(select.value)) return;
+    state.sortTouched = true;
+    state.sort = select.value;
+    state.libraryLimit = state.wishLimit = BOOK_BATCH_SIZE;
+    render();
+    try { await setSetting('librarySort', state.sort); } catch { toast('Tri appliqué, mais sa mémorisation a échoué sur cet appareil.', true); }
+  });
+  for (const [button, key, container, selector] of [[el.loadMoreBooks, 'libraryLimit', el.bookGrid, '.book-card'], [el.loadMoreWishes, 'wishLimit', el.wishList, '.list-card']]) {
+    button.addEventListener('click', () => {
+      const previous = state[key];
+      state[key] += BOOK_BATCH_SIZE;
+      render();
+      const firstNew = container.querySelectorAll(selector)[previous];
+      firstNew?.focus({ preventScroll: true });
+      firstNew?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+  }
   el.openCoverSearch.addEventListener('click', openDiscovery);
   el.openTitleSearch.addEventListener('click', openDiscovery);
   el.coverPhotoInput.addEventListener('change', () => handleCoverPhoto(el.coverPhotoInput.files?.[0]));
@@ -873,13 +904,14 @@ function bindEvents() {
   el.formCover.addEventListener('input', updateFormCover);
   el.formBookTitle.addEventListener('input', () => { if (!el.formCover.value) updateFormCover(); });
   el.formCoverPreview.addEventListener('error', () => { el.formCoverPreview.hidden = true; el.formCoverFallback.hidden = false; });
-  el.searchInput.addEventListener('input', render);
-  el.wishSearchInput.addEventListener('input', render);
-  el.clearSearch.addEventListener('click', () => { el.searchInput.value = ''; render(); el.searchInput.focus(); });
+  el.searchInput.addEventListener('input', () => { state.libraryLimit = BOOK_BATCH_SIZE; render(); });
+  el.wishSearchInput.addEventListener('input', () => { state.wishLimit = BOOK_BATCH_SIZE; render(); });
+  el.clearSearch.addEventListener('click', () => { el.searchInput.value = ''; state.libraryLimit = BOOK_BATCH_SIZE; render(); el.searchInput.focus(); });
   el.categoryFilters.addEventListener('click', (event) => {
     const button = event.target.closest('[data-category]');
     if (!button) return;
     state.category = button.dataset.category;
+    state.libraryLimit = BOOK_BATCH_SIZE;
     render();
   });
   [el.bookGrid, el.wishList].forEach((container) => container.addEventListener('click', (event) => {
@@ -922,6 +954,10 @@ async function init() {
   bindEvents();
   updateNetworkState();
   el.welcomeDate.textContent = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
+  try {
+    const savedSort = await getSetting('librarySort');
+    if (!state.sortTouched && SORT_MODES.includes(savedSort)) state.sort = savedSort;
+  } catch { /* Le chargement de la collection fournit son propre message d'erreur. */ }
   try { await refreshBooks(); } catch (error) { toast(`Stockage local indisponible : ${error.message}`, true); }
   setView(location.hash === '#envies' ? 'envies' : 'bibliotheque');
   registerServiceWorker();

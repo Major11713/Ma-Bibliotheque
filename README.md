@@ -1,5 +1,15 @@
 # Ma Bibliothèque
 
+## Version 1.5.0 : organiser une grande collection
+
+Le menu « Trier mes livres » propose Titre A → Z (par défaut), Auteur A → Z, Genre A → Z puis titre, et Derniers ajouts. Le choix est mémorisé localement et s'applique aussi aux envies. Les tris respectent l'alphabet français, ignorent la différence de casse/accents et placent les nombres dans leur ordre naturel (tome 2 avant tome 10).
+
+Le tri auteur utilise le premier auteur : « Nom, Prénom » est conservé dans cet ordre ; pour « Prénom Nom », le dernier mot sert de nom de classement. Les noms composés peuvent nécessiter une saisie sous la forme « Nom composé, Prénom ». Les auteurs absents et livres sans genre sont placés à la fin.
+
+En tri genre, chaque livre apparaît une seule fois sous son premier genre alphabétique, puis par titre. Le filtre retrouve un livre dans chacun de ses genres, même secondaire. Recherche et filtres se combinent à tous les tris.
+
+La vue affiche 60 livres à la fois avec « Afficher plus ». Cela ne limite ni les livres sauvegardés ni la recherche, qui porte sur toute la collection. Un jeu synthétique de 2 500 livres est fourni pour vérification locale dans `tests/large-library-qa.html` ; il est exclu du déploiement. Les performances réelles et la capacité de stockage restent dépendantes de l'appareil et de Safari : conserver des exports JSON réguliers, surtout avant une saisie massive.
+
 ## Version 1.4.0 : photo, rapprochement et achat
 
 « Photographier une couverture » prend une photo sur iPhone ; « Choisir une photo » accepte une image existante. Tesseract lit le texte français sur l'appareil sans transmettre ni conserver la photo. Seuls les mots recherchés sont envoyés à Google Books, Open Library et la BnF. Polices fantaisie, reflets et texte déformé peuvent faire échouer la lecture : le scan du code-barres reste le secours. Pas de saisie ISBN dans le scanner ; l'ISBN reste éditable dans les fiches.

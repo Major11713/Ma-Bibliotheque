@@ -1,4 +1,13 @@
-# Vérification de la version 1.4.0
+# Vérification de la version 1.5.0
+
+## Organisation et grandes collections
+
+Vérification locale dans le navigateur : 2 500 fiches synthétiques enregistrées, 60 cartes initiales puis 120 après « Afficher plus », recherche du livre 2499 depuis le premier lot, tri par auteur (Hugo avant Zola), tri récent, filtre Romance (833 résultats) combiné au tri titre, et tri conservé après rechargement. Ce test sur ordinateur ne constitue pas une mesure de performance sur iPhone réel.
+
+- Vérifier les quatre tris, accents/casse, ordre naturel des nombres, noms d'auteur fournis dans les deux sens et absence de métadonnées.
+- Vérifier un filtre de genre secondaire et une recherche visant un livre au-delà du premier lot de 60 ; tous les livres doivent être recherchés, pas seulement les cartes déjà affichées.
+- Vérifier « Afficher plus », retour à 60 cartes après changement de filtre/recherche/tri, et mémorisation du choix après rechargement.
+- En local uniquement, ouvrir `tests/large-library-qa.html`, créer les 2 500 fiches synthétiques puis ouvrir la bibliothèque. Aucun jeu de test n'est installé sur le site public ou dans la collection de l'utilisateur.
 
 ## Nouveaux parcours à vérifier sur iPhone réel
 
