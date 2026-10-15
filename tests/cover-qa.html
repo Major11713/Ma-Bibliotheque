@@ -9,7 +9,7 @@ ctx.font='bold 62px Arial';ctx.fillText('GLITTER GIRL',350,300);ctx.font='40px A
 document.getElementById('run').onclick=async()=>{
  const out=document.getElementById('output');out.textContent='Lecture…';
  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
- try{out.textContent=await readCoverPhoto(new File([blob],'fixture.png',{type:'image/png'}),m=>{out.textContent=m.status+' '+Math.round(m.progress*100)+' %';})||'Annulé';}catch(e){out.textContent='ERREUR '+e.message;}
+ try{const result=await readCoverPhoto(new File([blob],'fixture.png',{type:'image/png'}),m=>{out.textContent=m.status+' '+Math.round(m.progress*100)+' %';});out.textContent=result?result.text+'\nConfiance OCR : '+result.confidence:'Annulé';}catch(e){out.textContent='ERREUR '+e.message;}
 };
 document.getElementById('cancel').onclick=()=>cancelCoverRecognition();
 </script></html>

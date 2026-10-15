@@ -15,7 +15,7 @@ function appContext(lookupBook, getBook=async()=>null) {
     return elements.get(id);
   };
   const context=vm.createContext({document:{getElementById:element,querySelectorAll:()=>[],body:{append(){}},createElement:()=>({remove(){}})},navigator:{onLine:true},getBook,getSetting:async()=>'',stopScanner:()=>{},
-    lookupBook,normaliseIsbn,findBookMatches,attachIsbnProposal,BOOK_BATCH_SIZE,SORT_MODES,bookGenre,collectionPage,getAllBooks:async()=>[],setTimeout:()=>0,console});
+    lookupBook,normaliseIsbn,findBookMatches,attachIsbnProposal,BOOK_BATCH_SIZE,SORT_MODES,bookGenre,collectionPage,getAllBooks:async()=>[],setTimeout:()=>0,clearTimeout:()=>{},console});
   const source=fs.readFileSync(new URL('../app.js',import.meta.url),'utf8')
     .replace(/^import .*;\r?\n/gm,'').replaceAll('export ','').replace(/\binit\(\);\s*$/,'');
   vm.runInContext(source,context);
@@ -94,6 +94,84 @@ test('fermer la recherche annule toute réponse future et ferme le rapprochement
   context.askDuplicate({title:'Titre'},[]).then(result=>choice=result);
   context.closeDialog(element('duplicateDialog'));
   return Promise.resolve().then(()=>assert.equal(choice.action,'cancel'));
+});
+
+function fakeSoundContext() {
+  return { state:'running',currentTime:0,destination:{}, starts:0,
+    resume(){this.state='running';return Promise.resolve()},close(){this.state='closed';return Promise.resolve()},
+    createOscillator(){const owner=this;return {frequency:{},connect(){return {connect(){}}},start(){owner.starts++},stop(){},disconnect(){}}},
+    createGain(){return {gain:{setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){return {connect(){}}},disconnect(){}}}
+  };
+}
+
+test('le son est rejoué après une interruption, pas seulement une suspension',async()=>{
+  const {context}=appContext(async()=>({}));
+  const audio=fakeSoundContext();audio.state='interrupted';context.audioFixture=audio;
+  vm.runInContext('state.audio=audioFixture;',context);
+  assert.equal(await context.playFeedback(false),true);
+  audio.state='interrupted';
+  assert.equal(await context.playFeedback(false),true);
+  assert.equal(audio.starts,4);
+});
+
+test('un clic de réactivation remplace un contexte audio interrompu',async()=>{
+  const {context}=appContext(async()=>({}));
+  const previous=fakeSoundContext();previous.state='interrupted';
+  const replacement=fakeSoundContext();
+  context.window={AudioContext:class{constructor(){return replacement}}};context.audioFixture=previous;
+  vm.runInContext('state.audio=audioFixture;',context);
+  assert.equal(await context.playFeedback(false,true),true);
+  assert.equal(previous.state,'closed');assert.equal(replacement.starts,2);
+});
+
+test('un moteur fermé est recréé pour le prochain signal',async()=>{
+  const {context}=appContext(async()=>({}));
+  const old=fakeSoundContext();old.state='closed';const replacement=fakeSoundContext();
+  context.window={AudioContext:class{constructor(){return replacement}}};context.audioFixture=old;
+  vm.runInContext('state.audio=audioFixture;',context);
+  assert.equal(await context.playFeedback(false),true);assert.equal(replacement.starts,2);
+});
+
+test('la commande Réécouter recrée le moteur même si un ancien moteur paraît actif mais reste muet',async()=>{
+  const {context}=appContext(async()=>({}));
+  const old=fakeSoundContext(),replacement=fakeSoundContext();
+  context.audioFixture=old;context.window={AudioContext:class{constructor(){return replacement}}};
+  vm.runInContext('state.audio=audioFixture;',context);
+  assert.equal(await context.replayFeedback(false),true);
+  assert.equal(old.state,'closed');assert.equal(replacement.starts,2);
+});
+
+test('un son refusé ne masque pas le résultat visuel et propose une réactivation',async()=>{
+  const {context,element}=appContext(async()=>({}));
+  const audio=fakeSoundContext();audio.state='suspended';audio.resume=()=>Promise.reject(new Error('bloqué'));
+  context.audioFixture=audio;vm.runInContext('state.audio=audioFixture;',context);
+  assert.equal(await context.playFeedback(false),false);
+  assert.match(element('scannerAudioStatus').textContent,/réactiver/);
+});
+
+test('relancer volontairement le scanner accepte immédiatement le même ISBN',async()=>{
+  const {context,element}=appContext(async()=>({}),async()=>({title:'Livre possédé',status:'owned'}));
+  let negative=0;context.playFeedback=async positive=>{if(!positive)negative++};context.startScanner=async()=>{};
+  element('scannerDialog').open=true;
+  await context.processScan('9782755640427');
+  assert.match(element('scanResult').innerHTML,/Vous l’avez déjà/);
+  await context.startCamera();
+  await context.processScan('9782755640427');
+  assert.equal(negative,2);
+});
+
+test('lecture photo peu fiable : proposer de corriger sans rechercher le texte déformé',async()=>{
+  const {context,element}=appContext(async()=>({}));
+  context.cancelCoverRecognition=()=>{};
+  context.readCoverPhoto=async()=>({text:'Texte déformé',confidence:35});
+  context.coverTextQuery=text=>text;
+  let searched=false;context.searchDiscovery=async()=>{searched=true};
+  element('coverSearchDialog').open=true;
+  await context.handleCoverPhoto({});
+  assert.equal(searched,false);
+  assert.equal(element('coverQuery').value,'Texte déformé');
+  assert.match(element('coverReadingNotice').textContent,/aucun livre n’est encore identifié/);
+  assert.equal(element('coverSearchSubmit').disabled,false);
 });
 
 test('fermer pendant la permission caméra arrête le flux qui arrive ensuite',async()=>{

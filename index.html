@@ -12,7 +12,7 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <link rel="icon" href="./icons/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=1.5.0" />
+    <link rel="stylesheet" href="./styles.css?v=1.5.1" />
     <title>Ma Bibliothèque</title>
   </head>
   <body>
@@ -143,6 +143,8 @@
         </div>
         <div class="scanner-panel">
           <p id="scannerHint">Le résultat reste sur votre téléphone.</p>
+          <button class="button secondary full" id="testScannerSound" type="button">🔊 Tester / réactiver le son</button>
+          <p class="scanner-audio-status" id="scannerAudioStatus" role="status"></p>
           <form id="manualIsbnForm" class="isbn-form" hidden>
             <label for="manualIsbn">Ou saisir l’ISBN</label>
             <div><input id="manualIsbn" inputmode="numeric" autocomplete="off" placeholder="978…" /><button type="submit">Valider</button></div>
@@ -240,7 +242,7 @@
           <ol><li>Ouvrez le site dans Safari.</li><li>Touchez <strong>Partager</strong>.</li><li>Choisissez <strong>Sur l’écran d’accueil</strong>, puis <strong>Ajouter</strong>.</li></ol>
         </div>
         <div class="storage-status" id="storageStatus"></div>
-        <p class="version-line">Ma Bibliothèque · version 1.5.0 · sans compte, sans publicité</p>
+        <p class="version-line">Ma Bibliothèque · version 1.5.1 · sans compte, sans publicité</p>
       </section>
     </dialog>
 
@@ -267,11 +269,14 @@
         <header class="sheet-header"><button class="round-button" type="button" data-close-dialog="coverSearchDialog" aria-label="Fermer la recherche">×</button><h2 id="coverSearchTitle">Trouver un livre</h2></header>
         <div class="settings-group">
           <p>Photographiez la couverture bien à plat, sans reflet. Le texte est lu sur cet appareil : votre photo n’est ni envoyée ni conservée.</p>
-          <label class="button primary full photo-picker">📷 Prendre une photo<input id="coverPhotoInput" type="file" accept="image/*" capture="environment" /></label>
-          <label class="button secondary full photo-picker">Choisir une photo<input id="coverGalleryInput" type="file" accept="image/*" /></label>
+          <div class="photo-actions">
+            <label class="button primary photo-picker">📷 Prendre une photo<input id="coverPhotoInput" type="file" accept="image/*" capture="environment" /></label>
+            <label class="button secondary photo-picker">Choisir une photo<input id="coverGalleryInput" type="file" accept="image/*" /></label>
+          </div>
           <p id="coverProgress" role="status" aria-live="polite"></p>
+          <p class="reading-notice" id="coverReadingNotice" hidden></p>
           <details id="coverTextDetails" hidden><summary>Texte lu sur la couverture</summary><p id="coverOcrText"></p></details>
-          <form id="coverSearchForm"><label>Titre, auteur ou texte de couverture<input id="coverQuery" autocomplete="off" required maxlength="180" placeholder="Par exemple : titre et nom de l’auteur" /></label><button class="button primary full" id="coverSearchSubmit" type="submit">Rechercher les livres</button></form>
+          <form id="coverSearchForm"><label>Titre, auteur ou texte de couverture<textarea id="coverQuery" rows="2" autocomplete="off" required maxlength="180" placeholder="Par exemple : titre et nom de l’auteur"></textarea></label><button class="button primary full" id="coverSearchSubmit" type="submit">Rechercher les livres</button></form>
           <p>Vérifiez le titre, l’auteur et le tome avant de choisir. Une photo ne garantit pas la bonne édition.</p>
           <button class="button secondary full" id="coverScanFallback" type="button">Scanner le code-barres à la place</button>
           <div id="coverResults" class="discovery-results" aria-live="polite"></div>
@@ -287,8 +292,8 @@
     </dialog>
     <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
 
-    <script src="./vendor/zxing-browser.min.js?v=1.5.0"></script>
+    <script src="./vendor/zxing-browser.min.js?v=1.5.1"></script>
     <script src="./vendor/ocr/tesseract.min.js"></script>
-    <script type="module" src="./app.js?v=1.5.0"></script>
+    <script type="module" src="./app.js?v=1.5.1"></script>
   </body>
 </html>

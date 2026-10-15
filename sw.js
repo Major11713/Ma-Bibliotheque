@@ -1,12 +1,12 @@
-const VERSION = 'ma-bibliotheque-v1.5.0';
+const VERSION = 'ma-bibliotheque-v1.5.1';
 const RUNTIME = `${VERSION}-runtime`;
 const COVERS = 'ma-bibliotheque-covers-v1';
 
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css?v=1.5.0',
-  './app.js?v=1.5.0',
+  './styles.css?v=1.5.1',
+  './app.js?v=1.5.1',
   './db.js',
   './isbn.js',
   './backup.js',
@@ -19,7 +19,7 @@ const APP_SHELL = [
   './cover-search.js',
   './vendor/ocr/tesseract.min.js',
   './manifest.webmanifest',
-  './vendor/zxing-browser.min.js?v=1.5.0',
+  './vendor/zxing-browser.min.js?v=1.5.1',
   './icons/favicon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',

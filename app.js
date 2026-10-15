@@ -4,7 +4,7 @@ import { validateBackup } from './backup.js';
 import { lookupBook } from './api.js';
 import { startScanner, stopScanner, toggleTorch } from './scanner.js';
 import { findBookMatches, attachIsbnProposal } from './identity.js';
-import { readCoverPhoto, cancelCoverRecognition, coverTextQuery, searchCoverBooks } from './cover-search.js';
+import { readCoverPhoto, cancelCoverRecognition, coverTextQuery, searchCoverBooks, discoveryResultMessage } from './cover-search.js';
 import { BOOK_BATCH_SIZE, SORT_MODES, bookGenre, collectionPage } from './library-order.js';
 
 const state = {
@@ -23,6 +23,7 @@ const state = {
   formPublisher: '',
   formLanguage: '',
   audio: null,
+  resultFeedbackPositive: false,
   formDataSource: 'Saisie manuelle',
   formDescriptionTranslated: false,
   duplicateResolve: null,
@@ -52,6 +53,7 @@ const el = Object.fromEntries([
   'coverScanFallback', 'coverResults', 'coverManualFallback', 'duplicateDialog', 'duplicateMessage',
   'duplicateCandidates', 'duplicateDifferent', 'buyBookLink',
   'librarySort', 'wishSort', 'loadMoreBooks', 'loadMoreWishes', 'wishResultsNote',
+  'testScannerSound', 'scannerAudioStatus', 'coverReadingNotice',
   'toastRegion', 'networkBanner', 'manualAddButton', 'welcomeDate'
 ].map((id) => [id, document.getElementById(id)]));
 
@@ -184,31 +186,65 @@ function updateNetworkState() {
 
 
 
-async function ensureAudio() {
+async function ensureAudio(fromGesture = false) {
   try {
-    if (!state.audio) state.audio = new (window.AudioContext || window.webkitAudioContext)();
-    if (state.audio.state === 'suspended') await state.audio.resume();
-  } catch { /* Le retour visuel reste disponible. */ }
+    if (!state.audio || state.audio.state === 'closed' || (fromGesture && state.audio.state === 'interrupted')) {
+      const previous = state.audio;
+      if (previous && previous.state !== 'closed') previous.close().catch(() => {});
+      state.audio = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    const audio = state.audio;
+    const resume = audio.state !== 'running' ? audio.resume() : Promise.resolve();
+    // Amorcer le moteur dans le clic utilisateur, avant les attentes caméra/réseau.
+    if (fromGesture && audio.createBufferSource) {
+      const source = audio.createBufferSource();
+      source.buffer = audio.createBuffer(1, 1, audio.sampleRate);
+      source.connect(audio.destination); source.start(0);
+      source.onended = () => source.disconnect();
+    }
+    let timer;
+    try { await Promise.race([resume, new Promise(resolve => { timer = setTimeout(resolve, 700); })]); }
+    finally { clearTimeout(timer); }
+    return audio === state.audio && audio.state === 'running';
+  } catch { return false; /* Le résultat visuel reste disponible. */ }
 }
 
-async function playFeedback(positive) {
-  await ensureAudio();
-  if (navigator.vibrate) navigator.vibrate(positive ? [70, 45, 70] : [170]);
-  if (!state.audio || state.audio.state !== 'running') return;
-  const now = state.audio.currentTime;
-  const notes = positive ? [[660, 0], [880, .12]] : [[220, 0], [165, .16]];
-  notes.forEach(([frequency, delay], index) => {
-    const oscillator = state.audio.createOscillator();
-    const gain = state.audio.createGain();
-    oscillator.type = positive ? 'sine' : 'sawtooth';
-    oscillator.frequency.value = frequency;
-    gain.gain.setValueAtTime(.0001, now + delay);
-    gain.gain.exponentialRampToValueAtTime(.14, now + delay + .015);
-    gain.gain.exponentialRampToValueAtTime(.0001, now + delay + (positive ? .11 : .16));
-    oscillator.connect(gain).connect(state.audio.destination);
-    oscillator.start(now + delay);
-    oscillator.stop(now + delay + (index ? .18 : .15));
-  });
+async function playFeedback(positive, fromGesture = false) {
+  const ready = await ensureAudio(fromGesture);
+  try { if (navigator.vibrate) navigator.vibrate(positive ? [70, 45, 70] : [170]); } catch {}
+  if (!ready) {
+    el.scannerAudioStatus.textContent = 'Son indisponible : touchez « Tester / réactiver le son ». Le résultat visuel reste fiable.';
+    return false;
+  }
+  try {
+    const now = state.audio.currentTime;
+    const notes = positive ? [[660, 0], [880, .12]] : [[220, 0], [165, .16]];
+    notes.forEach(([frequency, delay], index) => {
+      const oscillator = state.audio.createOscillator();
+      const gain = state.audio.createGain();
+      oscillator.type = positive ? 'sine' : 'sawtooth';
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(.0001, now + delay);
+      gain.gain.exponentialRampToValueAtTime(.14, now + delay + .015);
+      gain.gain.exponentialRampToValueAtTime(.0001, now + delay + (positive ? .11 : .16));
+      oscillator.connect(gain).connect(state.audio.destination);
+      oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+      oscillator.start(now + delay);
+      oscillator.stop(now + delay + (index ? .18 : .15));
+    });
+    el.scannerAudioStatus.textContent = 'Signal sonore envoyé. S’il reste inaudible, vérifiez le volume et la sortie audio de l’iPhone.';
+    return true;
+  } catch {
+    el.scannerAudioStatus.textContent = 'Son interrompu : touchez « Tester / réactiver le son ».';
+    return false;
+  }
+}
+
+function replayFeedback(positive) {
+  const previous = state.audio;
+  state.audio = null;
+  if (previous && previous.state !== 'closed') previous.close().catch(() => {});
+  return playFeedback(positive, true);
 }
 
 function setScanMode(mode) {
@@ -224,7 +260,7 @@ function setScanMode(mode) {
 }
 
 async function openScanner(mode = 'check') {
-  await ensureAudio();
+  await ensureAudio(true);
   setScanMode(mode);
   el.manualIsbn.value = '';
   state.scanBusy = false;
@@ -238,6 +274,8 @@ async function openScanner(mode = 'check') {
 async function startCamera() {
   const token = ++state.cameraToken;
   state.scanBusy = false;
+  state.lastScanned = '';
+  state.lastScannedAt = 0;
   el.scanResult.hidden = true;
   el.torchButton.hidden = true;
   el.cameraPlaceholder.hidden = false;
@@ -253,7 +291,7 @@ async function startCamera() {
     if (token !== state.cameraToken || !el.scannerDialog.open) return;
     el.cameraPlaceholder.hidden = false;
     const denied = error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError';
-    el.scannerMessage.textContent = denied ? 'Caméra refusée — saisissez l’ISBN ci-dessous' : 'Caméra indisponible — utilisez la saisie manuelle';
+    el.scannerMessage.textContent = denied ? 'Caméra refusée — autorisez-la dans les réglages Safari ou utilisez l’ajout manuel' : 'Caméra indisponible — utilisez la photo ou l’ajout manuel depuis l’accueil';
     toast(denied ? 'Autorisez la caméra dans les réglages Safari pour scanner.' : error.message, true);
   }
 }
@@ -329,6 +367,8 @@ async function processScan(rawValue) {
 }
 
 function showScanResult(positive, title, message, actions, isbn) {
+  state.resultFeedbackPositive = positive;
+  actions = [...actions, ['Réécouter le résultat', 'replay']];
   el.scanResult.className = `scan-result${positive ? '' : ' negative'}`;
   el.scanResult.innerHTML = `<h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p><div class="button-row">${actions.map(([label, action], index) => `<button class="button ${index === 0 ? 'primary' : 'secondary'}" type="button" data-scan-action="${action}" data-isbn="${escapeHtml(isbn)}">${escapeHtml(label)}</button>`).join('')}</div>`;
   el.scanResult.hidden = false;
@@ -751,6 +791,7 @@ function openDiscovery() {
   el.coverQuery.value = '';
   el.coverProgress.textContent = '';
   el.coverTextDetails.hidden = true;
+  el.coverReadingNotice.hidden = true;
   el.coverPhotoInput.value = '';
   el.coverGalleryInput.value = '';
   showDialog(el.coverSearchDialog);
@@ -764,21 +805,28 @@ async function handleCoverPhoto(file) {
   const token = state.discoveryToken;
   el.coverResults.innerHTML = '';
   el.coverTextDetails.hidden = true;
+  el.coverReadingNotice.hidden = true;
   el.coverPhotoInput.disabled = true;
   el.coverGalleryInput.disabled = true;
   el.coverSearchSubmit.disabled = true;
   el.coverProgress.textContent = 'Lecture de la couverture sur cet appareil… La première utilisation charge le moteur gratuit.';
   try {
-    const text = await readCoverPhoto(file, message => {
+    const reading = await readCoverPhoto(file, message => {
       if (token === state.discoveryToken && message.status === 'recognizing text') el.coverProgress.textContent = `Lecture du texte : ${Math.round(message.progress * 100)} %`;
     });
     if (token !== state.discoveryToken || !el.coverSearchDialog.open) return;
-    if (text === null) { el.coverProgress.textContent = 'Lecture interrompue ou trop longue. Utilisez le scan du code-barres.'; return; }
+    if (reading === null) { el.coverProgress.textContent = 'Lecture interrompue ou trop longue. Utilisez le scan du code-barres.'; return; }
+    const text = reading.text;
     el.coverOcrText.textContent = text;
     el.coverTextDetails.hidden = !text;
     el.coverQuery.value = coverTextQuery(text);
-    el.coverProgress.textContent = text ? 'Texte proposé : corrigez le titre ou l’auteur si nécessaire, puis recherchez.' : 'Texte illisible. Utilisez le scan du code-barres.';
-    if (el.coverQuery.value) await searchDiscovery();
+    const uncertain = reading.confidence < 60;
+    el.coverReadingNotice.hidden = !text;
+    el.coverReadingNotice.textContent = uncertain
+      ? 'Lecture peu fiable : aucun livre n’est encore identifié. Corrigez les mots ci-dessous pour garder seulement le titre et l’auteur, ou utilisez le scan du code-barres.'
+      : 'Du texte a été lu ; cela ne confirme pas encore le livre. Vérifiez les mots ci-dessous et le résultat proposé.';
+    el.coverProgress.textContent = text ? (uncertain ? 'Texte à corriger avant la recherche.' : 'Recherche à partir du texte lu…') : 'Texte illisible. Utilisez le scan du code-barres.';
+    if (el.coverQuery.value && !uncertain) await searchDiscovery();
   } catch {
     if (token === state.discoveryToken) el.coverProgress.textContent = 'Cette photo n’a pas pu être lue. Reprenez-la en bonne lumière ou scannez le code-barres.';
   } finally {
@@ -808,7 +856,7 @@ async function searchDiscovery() {
     const localIds = new Set(local.map(book => book.isbn));
     state.discoveryBooks = [...local.map(book => ({ ...book, local: true })), ...remote.books.filter(book => !book.isbn || !localIds.has(book.isbn))];
     el.coverResults.innerHTML = state.discoveryBooks.map((book, index) => `<article class="discovery-card"><h3>${escapeHtml(book.title)}</h3><p>${escapeHtml((book.authors || []).join(', ') || 'Auteur non renseigné')}<br>${escapeHtml(book.publishedDate || '')}${book.local ? `<br>${book.status === 'owned' ? 'Déjà dans votre bibliothèque' : 'Déjà dans vos envies'}` : `<br>${escapeHtml(book.source)}${book.isbn ? `<br>ISBN ${escapeHtml(book.isbn)}` : '<br>Édition sans ISBN identifié'}`}</p><div class="button-row"><button class="button primary" type="button" data-cover-index="${index}">${book.local ? 'Voir ma fiche existante' : 'Choisir et vérifier ce livre'}</button><a class="button secondary" href="${escapeHtml(purchaseSearchUrl(book))}" target="_blank" rel="noopener noreferrer">Où l’acheter ↗</a></div></article>`).join('');
-    el.coverProgress.textContent = `${state.discoveryBooks.length} proposition(s). ${remote.unavailable ? 'Catalogues indisponibles : seuls les résultats locaux sont affichés. Utilisez le scan du code-barres si nécessaire.' : 'Confirmez le bon titre, l’auteur et le tome ; sinon utilisez le scan du code-barres.'}`;
+    el.coverProgress.textContent = discoveryResultMessage(state.discoveryBooks.length, remote.unavailable);
   } catch {
     if (token === state.discoveryToken) el.coverProgress.textContent = 'Recherche interrompue. Réessayez ou scannez le code-barres.';
   } finally {
@@ -829,6 +877,7 @@ async function chooseDiscoveredBook(index) {
 }
 
 function bindEvents() {
+  el.testScannerSound.addEventListener('click', () => replayFeedback(false));
   for (const select of [el.librarySort, el.wishSort]) select.addEventListener('change', async () => {
     if (!SORT_MODES.includes(select.value)) return;
     state.sortTouched = true;
@@ -871,6 +920,7 @@ function bindEvents() {
   document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => setView(button.dataset.nav)));
   document.querySelectorAll('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => closeDialog(document.getElementById(button.dataset.closeDialog))));
   document.querySelectorAll('[data-scan-mode]').forEach((button) => button.addEventListener('click', async () => {
+    await ensureAudio(true);
     setScanMode(button.dataset.scanMode);
     await startCamera();
   }));
@@ -881,7 +931,7 @@ function bindEvents() {
   el.importPreviewDialog.addEventListener('cancel', () => { state.pendingImport = null; });
   el.manualIsbnForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    await ensureAudio();
+    await ensureAudio(true);
     const isbn = normaliseIsbn(el.manualIsbn.value);
     if (!isbn) { toast('Saisissez un ISBN-10 ou ISBN-13 valide.', true); return; }
     processScan(isbn);
@@ -893,7 +943,8 @@ function bindEvents() {
     const button = event.target.closest('[data-scan-action]');
     if (!button) return;
     const { scanAction: action, isbn } = button.dataset;
-    if (action === 'rescan') await startCamera();
+    if (action === 'rescan') { await ensureAudio(true); await startCamera(); }
+    if (action === 'replay') await replayFeedback(state.resultFeedbackPositive);
     if (action === 'add') await beginAddByIsbn(isbn, 'owned');
     if (action === 'wishlist') await beginAddByIsbn(isbn, 'wishlist');
     if (action === 'details') { await closeScanner(); openBookDetail(isbn); }

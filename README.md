@@ -1,5 +1,12 @@
 # Ma Bibliothèque
 
+## Version 1.5.1 : retours iPhone
+
+- Boutons photo en grille, sur deux lignes à largeur mobile : plus de labels en ligne qui se chevauchent. Le texte reconnu est modifiable dans une zone sur plusieurs lignes.
+- La lecture de texte ne vaut pas identification : une confiance OCR inférieure à 60 demande une correction avant toute recherche automatique. Ce score est un indicateur du moteur, pas une garantie d'identité. Zéro résultat explique clairement qu'aucun livre n'a été identifié et propose correction ou scan ; une panne des catalogues est distinguée d'une absence de résultat.
+- Audio : reprise des états interrompu/suspendu, remplacement d'un contexte fermé ou interrompu lors d'un geste utilisateur, amorçage dans les clics du scanner et remise à zéro de la protection anti-répétition lors d'un rescan volontaire. Une reprise audio qui n'aboutit pas ne bloque pas le résultat visuel. « Tester / réactiver le son » et « Réécouter le résultat » permettent un redémarrage explicite du moteur, même s'il paraît actif mais reste muet. Volume, sortie audio et restrictions Safari restent à valider sur l'iPhone.
+- Les catégories ne sont pas déduites d'un mot isolé comme « séduction » ou « attirance ». Si les notices consultées ne donnent aucun genre explicite, la fiche peut rester non classée. Les corrections manuelles sont toujours possibles ; aucune exception ISBN ni fiche de livre ajoutée dans le code.
+
 ## Version 1.5.0 : organiser une grande collection
 
 Le menu « Trier mes livres » propose Titre A → Z (par défaut), Auteur A → Z, Genre A → Z puis titre, et Derniers ajouts. Le choix est mémorisé localement et s'applique aussi aux envies. Les tris respectent l'alphabet français, ignorent la différence de casse/accents et placent les nombres dans leur ordre naturel (tome 2 avant tome 10).

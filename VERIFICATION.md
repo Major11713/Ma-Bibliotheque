@@ -1,4 +1,14 @@
-# Vérification de la version 1.5.0
+# Vérification de la version 1.5.1
+
+## Correctifs issus du test iPhone
+
+60 tests automatisés réussis, dont reprises audio interrompu/fermé, redémarrage explicite même si le contexte paraît actif, refus audio sans perte du résultat visuel, rescans immédiats du même ISBN, et lecture OCR incertaine sans recherche automatique.
+
+Dans le navigateur, `tests/mobile-qa.html` affiche l'application dans une vraie fenêtre CSS de largeur téléphone (375 px utiles dans le cadre de 390 px) : les deux boutons photo ont des rectangles disjoints, sans débordement. Ce cadre ne simule pas WebKit/Safari. Le texte déformé fourni dans la capture aboutit au message « Aucun livre identifié ». Le titre corrigé « Un chant avec le duc des mers » fournit deux propositions issues des vrais catalogues. L'image synthétique de `tests/cover-qa.html` est réellement lue avec une confiance OCR de 91.
+
+Pour 9782017306245 et 9782017272816, la lecture directe des notices BnF a donné un résumé mais aucun sujet de genre dans les champs exploités. Les pages de l'éditeur Hachette classent les deux en littérature sentimentale. Aucune fiche spéciale ou correspondance ISBN → Romance n'a été ajoutée. On ne peut pas mettre à jour les quatre livres stockés sur l'iPhone depuis le navigateur de test : modifier les catégories dans la fiche ou vérifier une actualisation, puis confirmer.
+
+À retester sur l'iPhone : trois scans consécutifs d'un livre possédé, « Réécouter le résultat », « Tester / réactiver le son », retour après verrouillage/changement d'application, photo de couverture réelle. Le correctif audio n'est pas déclaré validé sur matériel iOS par les tests simulés.
 
 ## Organisation et grandes collections
 

@@ -1,10 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { findBookMatches, attachIsbnProposal } from '../identity.js';
-import { coverTextQuery, searchCoverBooks, readCoverPhoto, cancelCoverRecognition } from '../cover-search.js';
+import { coverTextQuery, searchCoverBooks, readCoverPhoto, cancelCoverRecognition, discoveryResultMessage } from '../cover-search.js';
 import { DOMParser } from '@xmldom/xmldom';
 const manual = { isbn:'manuel-test', title:'Glitter Girl', authors:['C. J. Ronnie'], status:'wishlist', description:'Ma correction', cover:'https://example.test/ma-photo.jpg', addedAt:'2020-01-01' };
 const fresh = { isbn:'9782755640427', title:'GLITTER GIRL', authors:['CJ Ronnie'], status:'owned', description:'Résumé catalogue' };
+
+test('zéro résultat : ne demande jamais de confirmer un livre qui n’a pas été identifié',()=>{
+  assert.match(discoveryResultMessage(0),/Aucun livre identifié/);
+  assert.doesNotMatch(discoveryResultMessage(0),/Confirmez/);
+  assert.match(discoveryResultMessage(0,true),/Catalogues indisponibles/);
+  assert.match(discoveryResultMessage(2),/2 livres proposés/);
+});
 
 test('titre et auteur identifient une fiche manuelle malgré ponctuation et casse', () => {
   assert.equal(findBookMatches(fresh,[manual])[0].certain,true);

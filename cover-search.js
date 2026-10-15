@@ -7,6 +7,13 @@ export function coverTextQuery(text) {
     .slice(0, 8).join(' ').slice(0, 180);
 }
 
+export function discoveryResultMessage(count, unavailable = false) {
+  if (!count) return unavailable
+    ? 'Catalogues indisponibles et aucune fiche locale correspondante. Réessayez plus tard ou scannez le code-barres.'
+    : 'Aucun livre identifié pour ce texte. Si la recherche vient d’une photo, corrigez les mots mal lus et gardez seulement le titre et l’auteur, ou scannez le code-barres.';
+  return `${count} ${count > 1 ? 'livres proposés' : 'livre proposé'}. ${unavailable ? 'Seules vos fiches locales sont disponibles. ' : ''}Vérifiez le titre, l’auteur et le tome avant de choisir.`;
+}
+
 async function json(url, signal) {
   const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(`Catalogue indisponible (${response.status})`);
@@ -122,7 +129,7 @@ export async function readCoverPhoto(file, progress = () => {}) {
     const result = await Promise.race([activeWorker.recognize(canvas), cancellation]);
     if (!result) return null;
     if (ticket !== generation) return null;
-    return result.data.text.trim();
+    return { text: result.data.text.trim(), confidence: Number(result.data.confidence) || 0 };
   } finally {
     clearTimeout(timer);
     if (stopWaiting === stopped) stopWaiting = null;
