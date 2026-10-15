@@ -4,7 +4,7 @@
 
 Le menu « Trier mes livres » propose Titre A → Z (par défaut), Auteur A → Z, Genre A → Z puis titre, et Derniers ajouts. Le choix est mémorisé localement et s'applique aussi aux envies. Les tris respectent l'alphabet français, ignorent la différence de casse/accents et placent les nombres dans leur ordre naturel (tome 2 avant tome 10).
 
-Le tri auteur utilise le premier auteur : « Nom, Prénom » est conservé dans cet ordre ; pour « Prénom Nom », le dernier mot sert de nom de classement. Les noms composés peuvent nécessiter une saisie sous la forme « Nom composé, Prénom ». Les auteurs absents et livres sans genre sont placés à la fin.
+Le tri auteur utilise le premier auteur : « Nom, Prénom » fourni par un catalogue ou un import est conservé dans cet ordre ; pour « Prénom Nom », le dernier mot sert de nom de classement. La fiche ne distingue pas structurellement prénom et nom : certains noms composés peuvent donc être classés différemment d'un catalogue professionnel. Dans le formulaire, les virgules séparent plusieurs auteurs. Les auteurs absents et livres sans genre sont placés à la fin.
 
 En tri genre, chaque livre apparaît une seule fois sous son premier genre alphabétique, puis par titre. Le filtre retrouve un livre dans chacun de ses genres, même secondaire. Recherche et filtres se combinent à tous les tris.
 
