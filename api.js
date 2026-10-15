@@ -1,4 +1,3 @@
-
 import { translateDescriptionToFrench, inferCategories } from './enrichment.js';
 import { parseBnfRecord } from './bnf.js';
 const TIMEOUT_MS = 11000;
@@ -210,22 +209,31 @@ export function sameTitle(a, b) {
   const volume = value => normalized(value).match(/\b(?:tome|vol(?:ume)?|book|saison|part(?:ie)?)\s*0*(\d+)\b/)?.[1] || '';
   // Deux tomes différents ne partagent pas forcément leur résumé.
   if (volume(a) !== volume(b) && (volume(a) || volume(b))) return false;
+
   const x = titleCore(a);
   const y = titleCore(b);
 
   if (!x || !y) return false;
-  return x === y;
+  if (x === y) return true;
+
+  // Titre complet contenant le titre court (ou l'inverse),
+  // seulement si le plus court fait au moins 3 caractères.
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  return short.length >= 3 && (' ' + long + ' ').includes(' ' + short + ' ');
 }
 
 function sameAuthor(a, b) {
-  const x = normalized(cleanAuthor(a))
-    .split(' ').filter(Boolean).sort();
-  const y = normalized(cleanAuthor(b))
-    .split(' ').filter(Boolean).sort();
+  const x = normalized(cleanAuthor(a)).split(' ').filter(Boolean);
+  const y = normalized(cleanAuthor(b)).split(' ').filter(Boolean);
 
-  return x.length > 0 &&
-    x.length === y.length &&
-    x.every((word, i) => word === y[i]);
+  if (!x.length || !y.length) return false;
+
+  // Tous les mots du nom le plus court doivent se retrouver dans
+  // le plus long (deuxième prénom, « Jr », etc.).
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+
+  return short.every(word => long.includes(word)) &&
+    (short.length >= 2 || long.length === 1);
 }
 
 function matchesBook(title, authors, candidate) {
@@ -245,7 +253,7 @@ function matchesBook(title, authors, candidate) {
 export function normaliseCategories(subjects) {
   const rules = [
     ['Dark romance', /dark romance|romance sombre/i],
-    ['Romance', /romance|romantic fiction|love stories|amour|sentimental|new adult/i],
+    ['Romance', /romance|romantic fiction|love stories|amour|sentimental|new adult|military romance|romance militaire/i],
     ['Policier & thriller', /\bthriller\b|detective fiction|crime fiction|policier|roman noir/i],
     ['Fantasy', /\bfantasy\b|wizard|sorcery|high fantasy|urban fantasy/i],
     ['Fantastique', /fantastique|supernatural|paranormal/i],
