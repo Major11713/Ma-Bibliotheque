@@ -70,6 +70,70 @@ function formatAuthors(book) {
   return authors.length ? authors.join(', ') : 'Auteur inconnu';
 }
 
+// ===========================================
+// MÉMOIRE DES CATÉGORIES PAR SÉRIE / AUTEUR
+// ===========================================
+
+// Nom d'auteur normalisé, indépendant de l'ordre des mots.
+function nameKey(value = '') {
+  return String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean).sort().join(' ');
+}
+
+// Nom de série : le titre sans « tome 2 » ni ce qui suit.
+function seriesKey(title = '') {
+  return String(title).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/\b(?:tome|vol(?:ume)?|book|saison|part(?:ie)?)\s*\.?\s*\d+\b.*$/, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function shareAuthor(a, b) {
+  const x = new Set((a.authors || []).map(nameKey).filter(Boolean));
+  return (b.authors || []).some((name) => x.has(nameKey(name)));
+}
+
+function sameSeries(a, b) {
+  const key = seriesKey(a.title);
+  if (key.length < 3 || key !== seriesKey(b.title)) return false;
+  // Si les deux fiches ont un auteur, il doit être commun.
+  return !(a.authors?.length && b.authors?.length) || shareAuthor(a, b);
+}
+
+// Catégories proposées d'après les autres livres de la même série,
+// sinon d'après les livres du même auteur (uniquement si tous ses
+// livres classés partagent ces catégories).
+function suggestCategoriesFromLibrary(book) {
+  const others = state.books.filter((other) => other.isbn !== book.isbn && other.categories?.length);
+  const series = others.filter((other) => sameSeries(book, other));
+  if (series.length) {
+    const latest = [...series].sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0];
+    return latest.categories.slice(0, 3);
+  }
+  const byAuthor = others.filter((other) => shareAuthor(book, other));
+  if (!byAuthor.length) return [];
+  return byAuthor
+    .map((other) => other.categories)
+    .reduce((common, list) => common.filter((name) => list.includes(name)))
+    .slice(0, 3);
+}
+
+// Après avoir classé un livre, proposer de classer de la même façon
+// les livres sans catégorie de la même série ou du même auteur.
+async function offerCategoryPropagation(saved) {
+  if (!saved.categories?.length) return;
+  const targets = state.books.filter((other) =>
+    other.isbn !== saved.isbn && !other.categories?.length && (sameSeries(saved, other) || shareAuthor(saved, other)));
+  if (!targets.length) return;
+  const list = targets.slice(0, 8).map((other) => `• ${other.title}`).join('\n') + (targets.length > 8 ? '\n…' : '');
+  if (!confirm(`Appliquer « ${saved.categories.join(', ')} » aux ${targets.length} livre(s) sans catégorie de cette série ou de cet auteur ?\n\n${list}`)) return;
+  try {
+    const now = new Date().toISOString();
+    for (const other of targets) await saveBook({ ...other, categories: [...saved.categories], updatedAt: now }, other.isbn);
+    await refreshBooks();
+    toast(`${targets.length} livre(s) classé(s).`);
+  } catch (error) { toast(`Classement impossible : ${error.message}`, true); }
+}
+
 function coverMarkup(book, className = '') {
   const fallback = `<span class="cover-fallback">${escapeHtml(initials(book.title))}</span>`;
   if (!book.cover) return `<div class="${className}">${fallback}</div>`;
@@ -470,10 +534,13 @@ async function beginAddByIsbn(isbn, status = 'owned', discovery = null) {
     const result = await lookupBook(isbn, apiKey);
     const book = discovery ? { ...discovery, ...result, title: result.title || discovery.title, authors: result.authors?.length ? result.authors : discovery.authors } : result;
     if (token !== state.lookupToken || !el.bookFormDialog.open) return;
-    fillBookForm({ ...book, status }, { preserveIsbn: true });
+    // Catégorie introuvable dans les catalogues : s'inspirer des autres tomes / livres du même auteur.
+    const suggested = book.title && !book.categories?.length ? suggestCategoriesFromLibrary(book) : [];
+    fillBookForm({ ...book, categories: suggested.length ? suggested : book.categories, status }, { preserveIsbn: true });
+    if (suggested.length) el.formSource.textContent += ` Catégorie proposée d’après vos autres livres de cette série ou de cet auteur : ${suggested.join(', ')}.`;
     if (!book.title) toast('Livre introuvable : complétez les informations à la main.', true);
     else {
-      const missing = [!book.description && 'résumé', !book.categories?.length && 'catégories', !book.cover && 'couverture'].filter(Boolean);
+      const missing = [!book.description && 'résumé', !book.categories?.length && !suggested.length && 'catégories', !book.cover && 'couverture'].filter(Boolean);
       if (missing.length) toast(`Informations absentes des catalogues consultés : ${missing.join(', ')}.`, true);
     }
   } catch {
@@ -523,6 +590,7 @@ async function submitBookForm(event) {
     addedAt: existing?.addedAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+  let saved = false;
   try {
     state.formSaving = true;
     const token = state.lookupToken;
@@ -535,12 +603,17 @@ async function submitBookForm(event) {
       if (choice.action === 'attach') { openAttachForm(choice.book, book); return; }
     }
     await saveBook(book, originalIsbn);
+    saved = true;
     closeDialog(el.bookFormDialog);
     await refreshBooks();
     toast(book.status === 'owned' ? 'Livre ajouté à votre bibliothèque.' : 'Livre ajouté à vos envies.');
   } catch (error) {
     toast(`Impossible de sauvegarder : ${error.message}`, true);
   } finally { state.formSaving = false; }
+  // Proposer d'étendre la catégorie choisie aux autres tomes sans catégorie.
+  if (saved && book.categories.length && book.categories.join('|') !== (existing?.categories || []).join('|')) {
+    await offerCategoryPropagation(book);
+  }
 }
 
 function openBookDetail(isbn) {
