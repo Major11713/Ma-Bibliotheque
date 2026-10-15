@@ -1,7 +1,8 @@
+
 import { translateDescriptionToFrench, inferCategories } from './enrichment.js';
 import { parseBnfRecord } from './bnf.js';
 const TIMEOUT_MS = 11000;
-const CACHE_PREFIX = 'mb-livres-v8-';
+const CACHE_PREFIX = 'mb-livres-v9-';
 const GOOGLE_PAUSE_MS = 30 * 60 * 1000;
 
 let googleBlockedUntil = 0;
@@ -300,9 +301,11 @@ export function normaliseCategories(subjects) {
 // Classification complémentaire uniquement
 // si une indication de genre explicite existe.
 function categoriesFromDescription(description) {
+  const text = String(description || '');
+
   const rules = [
     ['Dark romance', /\bdark romance\b/i],
-    ['Romance', /\bromance\b|romantic novel|romantic fiction|histoire d'amour|triangle amoureux/i],
+    ['Romance', /\bromance\b|romantic novel|romantic fiction|histoire d'amour|triangle amoureux|littérature sentimentale/i],
     ['Fantasy', /\bhigh fantasy\b|\burban fantasy\b/i],
     ['Science-fiction', /\bscience.fiction\b|space opera/i],
     ['Policier & thriller', /\bthriller\b|police procedural/i],
@@ -310,9 +313,28 @@ function categoriesFromDescription(description) {
     ['BD & manga', /\bmanga\b|\bmanhwa\b|graphic novel/i]
   ];
 
-  return rules.filter(([, regex]) =>
-    regex.test(description || '')
-  ).map(([name]) => name);
+  const categories = rules
+    .filter(([, regex]) => regex.test(text))
+    .map(([name]) => name);
+
+  // Plusieurs indices d'une intrigue romantique peuvent exister
+  // même si le résumé ne contient pas le mot « romance ».
+  const romanticSignals = [
+    /\battirance\b/i,
+    /\b(?:c[ée]der|succomber)\b.{0,60}\b(?:regard|charme|d[ée]sir|attirance)\b/i,
+    /\b(?:se rapproch\w*|amour naissant|sentiments? amoureux|passion amoureuse)\b/i,
+    /\b(?:alchimie|tension amoureuse|relation amoureuse)\b/i,
+    /\b(?:s[ée]dui\w*|embrass\w*|tomb\w* amoureux)\b/i
+  ];
+
+  const romanticScore = romanticSignals.filter(signal => signal.test(text)).length;
+
+  // Deux indices distincts minimum pour limiter les faux positifs.
+  if (romanticScore >= 2 && !categories.includes('Romance')) {
+    categories.push('Romance');
+  }
+
+  return categories;
 }
 
 // ===========================================
