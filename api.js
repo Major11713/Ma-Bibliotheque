@@ -332,7 +332,9 @@ function categoriesFromDescription(description) {
     /\b(?:c[ée]der|succomber)\b.{0,60}\b(?:regard|charme|d[ée]sir|attirance)\b/i,
     /\b(?:se rapproch\w*|amour naissant|sentiments? amoureux|passion amoureuse)\b/i,
     /\b(?:alchimie|tension amoureuse|relation amoureuse)\b/i,
-    /\b(?:s[ée]dui\w*|embrass\w*|tomb\w* amoureux)\b/i
+    /\b(?:s[ée]dui\w*|s[ée]duction|embrass\w*|tomb\w* amoureux)\b/i,
+    /\b(?:enflamm\w*|passionn[ée]\w*|br[ûu]lant\w*|sensuel\w*)\b/i,
+    /\b(?:d[ée]sir|passion)\b/i
   ];
 
   const romanticScore = romanticSignals.filter(signal => signal.test(text)).length;
