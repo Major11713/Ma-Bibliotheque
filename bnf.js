@@ -84,13 +84,12 @@ export function parseBnfRecord(xml, isbn) {
       })
       .filter(Boolean);
 
-    // Résumés authentiques (seuil abaissé : un résumé éditeur
-    // court mais réel ne doit pas être écarté).
+    // Résumés authentiques.
     const summaries = [
       ...values('330', 'a'),
       ...values('830', 'a')
     ].filter(value =>
-      value.length >= 20 &&
+      value.length >= 60 &&
       !/^(collection|bibliographie|isbn|ean|code à barres)/i.test(value)
     );
 
@@ -139,7 +138,7 @@ export function parseBnfRecord(xml, isbn) {
       isbn,
       title: values('245', 'a')[0] || '',
       authors,
-      originalTitle: values('142', 'a')[0] || '',
+      originalTitle: values('145', 'a')[0] || values('142', 'a')[0] || '',
       description: summaries
         .sort((a, b) => b.length - a.length)[0] || '',
       subjects: allSubjects,
